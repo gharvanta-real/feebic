@@ -279,7 +279,6 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
       <video
         ref={videoRef}
         src={src}
-        controls
         playsInline
         preload="metadata"
         className="w-full max-h-[460px] object-contain"
