@@ -43,6 +43,8 @@ a {
   vertical-align: middle;
   opacity: 0.65;
   transition: opacity var(--transition-fast), color var(--transition-fast);
+  /* Force a thin, premium stroke weight (300) and no fill by default */
+  font-variation-settings: 'wght' 300, 'FILL' 0, 'GRAD' 0, 'opsz' 24 !important;
 }
 
 .material-symbols-outlined:not([class*="text-["]) {
@@ -50,12 +52,28 @@ a {
 }
 
 /* Keep icons fully opaque when they or their parent containers are colored (primary, active, success, etc.) */
-.material-symbols-outlined[class*="text-"],
+.material-symbols-outlined[class*="text-primary"],
+.material-symbols-outlined[class*="text-accent"],
+.material-symbols-outlined[class*="text-success"],
+.material-symbols-outlined[class*="text-emerald"],
 [class*="text-primary"] .material-symbols-outlined,
 [class*="text-accent"] .material-symbols-outlined,
 [class*="text-success"] .material-symbols-outlined,
 [class*="text-emerald"] .material-symbols-outlined {
   opacity: 1;
+}
+
+/* For colored/active icons, we want them to have FILL 1 if they are active/colored */
+.material-symbols-outlined[class*="text-primary"],
+.material-symbols-outlined[class*="text-accent"],
+.material-symbols-outlined[class*="text-success"],
+.material-symbols-outlined[class*="text-emerald"],
+.material-symbols-outlined.filled,
+[class*="text-primary"] .material-symbols-outlined,
+[class*="text-accent"] .material-symbols-outlined,
+[class*="text-success"] .material-symbols-outlined,
+[class*="text-emerald"] .material-symbols-outlined {
+  font-variation-settings: 'wght' 300, 'FILL' 1, 'GRAD' 0, 'opsz' 24 !important;
 }
 
 /* Light up icons smoothly on hover of their clickable container or the icon itself */
