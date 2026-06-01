@@ -52,27 +52,35 @@ a {
 }
 
 /* Keep icons fully opaque when they or their parent containers are colored (primary, active, success, etc.) */
-.material-symbols-outlined[class*="text-primary"],
-.material-symbols-outlined[class*="text-accent"],
-.material-symbols-outlined[class*="text-success"],
-.material-symbols-outlined[class*="text-emerald"],
-[class*="text-primary"] .material-symbols-outlined,
-[class*="text-accent"] .material-symbols-outlined,
-[class*="text-success"] .material-symbols-outlined,
-[class*="text-emerald"] .material-symbols-outlined {
+.material-symbols-outlined.text-primary,
+.material-symbols-outlined.text-accent,
+.material-symbols-outlined.text-success,
+.material-symbols-outlined.text-emerald-500,
+.material-symbols-outlined.text-emerald-600,
+.material-symbols-outlined.text-white,
+.text-primary .material-symbols-outlined,
+.text-accent .material-symbols-outlined,
+.text-success .material-symbols-outlined,
+.text-emerald-500 .material-symbols-outlined,
+.text-emerald-600 .material-symbols-outlined,
+.text-white .material-symbols-outlined {
   opacity: 1;
 }
 
 /* For colored/active icons, we want them to have FILL 1 if they are active/colored */
-.material-symbols-outlined[class*="text-primary"],
-.material-symbols-outlined[class*="text-accent"],
-.material-symbols-outlined[class*="text-success"],
-.material-symbols-outlined[class*="text-emerald"],
+.material-symbols-outlined.text-primary,
+.material-symbols-outlined.text-accent,
+.material-symbols-outlined.text-success,
+.material-symbols-outlined.text-emerald-500,
+.material-symbols-outlined.text-emerald-600,
+.material-symbols-outlined.text-white,
 .material-symbols-outlined.filled,
-[class*="text-primary"] .material-symbols-outlined,
-[class*="text-accent"] .material-symbols-outlined,
-[class*="text-success"] .material-symbols-outlined,
-[class*="text-emerald"] .material-symbols-outlined {
+.text-primary .material-symbols-outlined,
+.text-accent .material-symbols-outlined,
+.text-success .material-symbols-outlined,
+.text-emerald-500 .material-symbols-outlined,
+.text-emerald-600 .material-symbols-outlined,
+.text-white .material-symbols-outlined {
   font-variation-settings: 'wght' 300, 'FILL' 1, 'GRAD' 0, 'opsz' 24 !important;
 }
 
