@@ -72,13 +72,13 @@ export const RightPanel: React.FC = () => {
                 <button
                   onClick={() => handleSubscribeClick(creator.username, creator.subPrice)}
                   disabled={isSubbed}
-                  className={`text-[10px] font-black tracking-wider px-3.5 py-1.5 rounded-full uppercase shrink-0 transition-all cursor-pointer ${
+                  className={`text-[10.5px] px-3.5 py-1.5 rounded-full shrink-0 transition-all cursor-pointer ${
                     isSubbed
-                      ? "bg-[#242526] hover:bg-black text-white border border-transparent cursor-default select-none font-bold"
-                      : "border border-primary text-primary hover:bg-primary hover:text-white active:scale-95"
+                      ? "bg-[hsl(var(--text-muted-hsl)/0.08)] text-text-muted border border-border/60 cursor-default select-none font-semibold"
+                      : "border border-primary text-primary hover:bg-primary hover:text-white active:scale-95 font-bold uppercase tracking-wider"
                   }`}
                 >
-                  {isSubbed ? "SUBSCRIBED" : "SUBSCRIBE"}
+                  {isSubbed ? "Subscribed" : "SUBSCRIBE"}
                 </button>
               </div>
             );

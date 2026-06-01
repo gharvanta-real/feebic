@@ -277,13 +277,13 @@ function ProfileContent() {
 
                     <button
                       onClick={handleSubscribe}
-                      className={`px-5 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                      className={`px-5 py-2 rounded-full text-xs transition-all cursor-pointer ${
                         isSubbed
-                          ? "bg-black/5 dark:bg-white/5 text-text-muted border border-border"
-                          : "bg-primary text-white hover:opacity-95 shadow-md"
+                          ? "bg-black/5 dark:bg-white/5 text-text-muted border border-border font-semibold"
+                          : "bg-primary text-white hover:opacity-95 shadow-md font-bold uppercase tracking-wider"
                       }`}
                     >
-                      {isSubbed ? "SUBSCRIBED" : profileData.subPrice === 0 ? "SUBSCRIBE FREE" : `SUBSCRIBE`}
+                      {isSubbed ? "Subscribed" : profileData.subPrice === 0 ? "SUBSCRIBE FREE" : `SUBSCRIBE`}
                     </button>
                   </>
                 )}
@@ -359,9 +359,13 @@ function ProfileContent() {
               </div>
               <button
                 onClick={handleSubscribe}
-                className="bg-primary hover:bg-primary-hover text-white text-xs font-black px-6 py-2.5 rounded-full transition-all cursor-pointer shadow-sm uppercase tracking-wider"
+                className={`text-xs px-6 py-2.5 rounded-full transition-all cursor-pointer shadow-sm ${
+                  isSubbed
+                    ? "bg-black/5 dark:bg-white/5 text-text-muted border border-border/80 font-semibold cursor-default select-none"
+                    : "bg-primary hover:bg-primary-hover text-white font-black uppercase tracking-wider"
+                }`}
               >
-                {isSubbed ? "SUBSCRIBED" : "SUBSCRIBE"}
+                {isSubbed ? "Subscribed" : "SUBSCRIBE"}
               </button>
             </div>
           </div>
@@ -382,9 +386,13 @@ function ProfileContent() {
                 </div>
                 <button
                   onClick={() => handleSubscribeBundle(3, 10)}
-                  className="border border-primary text-primary hover:bg-primary/5 text-xs font-black px-5 py-2 rounded-full transition-all cursor-pointer uppercase tracking-wider"
+                  className={`text-xs px-5 py-2 rounded-full transition-all cursor-pointer ${
+                    isSubbed
+                      ? "bg-black/5 dark:bg-white/5 text-text-muted border border-border/80 font-semibold cursor-default select-none"
+                      : "border border-primary text-primary hover:bg-primary/5 font-black uppercase tracking-wider"
+                  }`}
                 >
-                  {isSubbed ? "SUBSCRIBED" : "SUBSCRIBE"}
+                  {isSubbed ? "Subscribed" : "SUBSCRIBE"}
                 </button>
               </div>
 
@@ -398,9 +406,13 @@ function ProfileContent() {
                 </div>
                 <button
                   onClick={() => handleSubscribeBundle(6, 15)}
-                  className="border border-primary text-primary hover:bg-primary/5 text-xs font-black px-5 py-2 rounded-full transition-all cursor-pointer uppercase tracking-wider"
+                  className={`text-xs px-5 py-2 rounded-full transition-all cursor-pointer ${
+                    isSubbed
+                      ? "bg-black/5 dark:bg-white/5 text-text-muted border border-border/80 font-semibold cursor-default select-none"
+                      : "border border-primary text-primary hover:bg-primary/5 font-black uppercase tracking-wider"
+                  }`}
                 >
-                  {isSubbed ? "SUBSCRIBED" : "SUBSCRIBE"}
+                  {isSubbed ? "Subscribed" : "SUBSCRIBE"}
                 </button>
               </div>
             </div>
