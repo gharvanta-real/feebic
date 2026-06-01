@@ -1,0 +1,254 @@
+"use client";
+
+import React, { useEffect, useState } from "react";
+import { AppShell } from "@/components/layout/AppShell";
+import { MobileHeader } from "@/components/layout/MobileHeader";
+import { useUser } from "@/context/UserContext";
+import { mockDb, Transaction } from "@/lib/mockDb";
+
+export default function WalletPage() {
+  const { walletBalance, adjustBalance, showToast } = useUser();
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [activeTab, setActiveTab] = useState<"all" | "funds" | "subscription" | "tip">("all");
+  
+  // Add funds form states
+  const [fundsVal, setFundsVal] = useState("20.00");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [cardHolder, setCardHolder] = useState("Alex Rivera");
+  const [cardNumber, setCardNumber] = useState("4111 2222 3333 4444");
+
+  const fetchTransactions = () => {
+    setTransactions(mockDb.getTransactions());
+  };
+
+  useEffect(() => {
+    setTimeout(() => {
+      fetchTransactions();
+    }, 0);
+
+    const handleWalletUpdate = () => fetchTransactions();
+    window.addEventListener("ch_wallet_updated", handleWalletUpdate);
+    return () => window.removeEventListener("ch_wallet_updated", handleWalletUpdate);
+  }, []);
+
+  const handleAddFunds = (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(fundsVal);
+    
+    if (isNaN(amount) || amount <= 0) {
+      showToast("Please enter a valid deposit amount");
+      return;
+    }
+
+    setIsProcessing(true);
+    setTimeout(() => {
+      setIsProcessing(false);
+      adjustBalance(amount, `Funds Loaded via Card ****${cardNumber.slice(-4)}`);
+      showToast(`Successfully deposited $${amount.toFixed(2)} to your wallet!`);
+      setFundsVal("20.00");
+    }, 1500);
+  };
+
+  const getFilteredTransactions = () => {
+    if (activeTab === "all") return transactions;
+    return transactions.filter(t => t.type === activeTab);
+  };
+
+  const filteredTransactions = getFilteredTransactions();
+
+  return (
+    <AppShell>
+      {/* Mobile Top Header */}
+      <MobileHeader>
+        <span className="text-sm font-bold text-text-muted select-none">Wallet</span>
+      </MobileHeader>
+
+      {/* Main Page Content (Touching Sidebar) */}
+      <div className="app-page-shell space-y-6 animate-fade-in">
+          
+          <div className="space-y-1 select-none">
+            <h1 className="text-lg font-black text-text-main font-sans tracking-tight">Wallet Manager</h1>
+            <p className="text-xs text-text-muted font-medium">Manage your credit card details, deposit limits, and invoice logs.</p>
+          </div>
+
+          {/* Core Balance Card Widget (Premium neon-glassmorphic style card mockup) */}
+          <div className="bg-gradient-to-br from-primary to-accent text-white rounded-3xl p-6 md:p-7 shadow-lg flex flex-col justify-between select-none relative overflow-hidden aspect-[1.8/1] sm:aspect-[2.1/1]">
+            {/* Visual ambient graphics overlays */}
+            <div className="absolute right-4 bottom-4 h-24 w-24 rounded-full bg-white/10 blur-xl pointer-events-none" />
+            <div className="absolute left-1/3 top-4 h-28 w-28 rounded-full bg-white/5 blur-2xl pointer-events-none" />
+            
+            <div className="flex justify-between items-start">
+              <div className="space-y-0.5">
+                <p className="text-[9px] font-black uppercase tracking-widest text-white/80">Active Credits</p>
+                <h2 className="text-3xl md:text-4xl font-black font-sans">${walletBalance.toFixed(2)}</h2>
+              </div>
+              <span className="material-symbols-outlined text-[36px] text-white/30" style={{ fontVariationSettings: "'FILL' 1" }}>
+                cloud
+              </span>
+            </div>
+
+            <div className="flex justify-between items-end">
+              <div className="space-y-1">
+                <p className="text-[11px] font-mono tracking-wider text-white/90">
+                  {cardNumber.replace(/\d{4}(?= \d)/g, "****")}
+                </p>
+                <p className="text-[9px] font-bold text-white/70 tracking-wide uppercase">{cardHolder}</p>
+              </div>
+              <div className="text-right">
+                <span className="text-[9px] font-black bg-white/20 px-2 py-0.5 rounded-full select-none uppercase tracking-wider">
+                  Safe Pay Secured
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Add Funds form container */}
+          <form onSubmit={handleAddFunds} className="bg-surface border border-border rounded-2xl p-5 shadow-sm space-y-4">
+            <h2 className="text-xs font-black text-text-muted uppercase tracking-widest pb-2 border-b border-border select-none flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-[18px]">add_circle</span>
+              <span>Deposit Wallet Funds</span>
+            </h2>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Funds Amount Input */}
+              <div>
+                <label className="block text-[11px] font-bold text-text-muted mb-1.5 ml-1 select-none">Deposit Amount (USD)</label>
+                <div className="relative flex items-center bg-background border border-border rounded-xl px-4 py-2.5 focus-within:border-primary transition-all">
+                  <span className="text-xs font-bold text-text-muted mr-1 select-none">$</span>
+                  <input
+                    type="number"
+                    step="5"
+                    min="5"
+                    required
+                    value={fundsVal}
+                    onChange={(e) => setFundsVal(e.target.value)}
+                    disabled={isProcessing}
+                    className="w-full text-xs font-bold bg-transparent outline-none text-text-main disabled:opacity-55"
+                  />
+                </div>
+              </div>
+
+              {/* Quick load presets */}
+              <div className="select-none">
+                <label className="block text-[11px] font-bold text-text-muted mb-1.5 ml-1">Quick Load Presets</label>
+                <div className="flex gap-2">
+                  {["20", "50", "100"].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setFundsVal(parseFloat(preset).toFixed(2))}
+                      disabled={isProcessing}
+                      className="flex-grow py-2.5 bg-background border border-border hover:border-text-muted active:scale-95 text-xs font-black rounded-xl transition-all cursor-pointer text-text-main"
+                    >
+                      +${preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Credit Card inputs */}
+            <div className="space-y-3 pt-2">
+              <div>
+                <label className="block text-[11px] font-bold text-text-muted mb-1.5 ml-1 select-none">Cardholder Name</label>
+                <input
+                  type="text"
+                  required
+                  value={cardHolder}
+                  onChange={(e) => setCardHolder(e.target.value)}
+                  disabled={isProcessing}
+                  className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:border-primary transition-all text-xs font-semibold outline-none text-text-main disabled:opacity-55"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-text-muted mb-1.5 ml-1 select-none">Credit Card Number</label>
+                <input
+                  type="text"
+                  required
+                  value={cardNumber}
+                  onChange={(e) => setCardNumber(e.target.value)}
+                  disabled={isProcessing}
+                  placeholder="4111 2222 3333 4444"
+                  maxLength={19}
+                  className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:border-primary transition-all text-xs font-semibold outline-none text-text-main disabled:opacity-55"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isProcessing}
+              className="w-full mt-2 py-3 bg-primary text-white hover:opacity-95 active:scale-[0.98] rounded-full font-black text-xs uppercase tracking-wider shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 select-none"
+            >
+              {isProcessing ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                  <span>Securing Transaction...</span>
+                </>
+              ) : (
+                <>
+                  <span className="material-symbols-outlined text-[16px] leading-none font-bold">lock</span>
+                  <span>Authorize Payout Deposit</span>
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Transactions Statement list */}
+          <div className="bg-surface border border-border rounded-2xl p-5 space-y-4 shadow-sm select-none">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-border pb-3 gap-3">
+              <h2 className="text-xs font-black text-text-muted uppercase tracking-widest flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[18px]">receipt_long</span>
+                <span>Billing Statements</span>
+              </h2>
+
+              {/* Transactions Tab Filter */}
+              <div className="flex gap-4 overflow-x-auto no-scrollbar max-w-full select-none bg-transparent">
+                {([
+                  { key: "all", label: "All" },
+                  { key: "funds", label: "Deposits" },
+                  { key: "subscription", label: "Subs" },
+                  { key: "tip", label: "Tips" }
+                ] as const).map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setActiveTab(tab.key)}
+                    className={`text-[12px] font-extrabold pb-3.5 -mb-3.5 cursor-pointer transition-all border-b-2 leading-none relative ${
+                      activeTab === tab.key
+                        ? "border-primary text-primary font-black"
+                        : "border-transparent text-text-muted hover:text-text-main"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {filteredTransactions.length === 0 ? (
+              <p className="text-xs text-text-muted py-6 text-center">No statements match your filter criteria.</p>
+            ) : (
+              <div className="space-y-4 divide-y divide-border/40">
+                {filteredTransactions.map((tx, idx) => (
+                  <div
+                    key={tx.id}
+                    className={`flex justify-between items-center gap-3 ${idx > 0 ? "pt-4" : ""}`}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-xs font-extrabold text-text-main truncate">{tx.title}</p>
+                      <p className="text-[10px] text-text-muted mt-0.5">{tx.subtitle}</p>
+                    </div>
+                    <p className={`text-xs font-black shrink-0 ${tx.amount < 0 ? "text-accent" : "text-success"}`}>
+                      {tx.amount < 0 ? `-$${Math.abs(tx.amount).toFixed(2)}` : `+$${tx.amount.toFixed(2)}`}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+      </div>
+    </AppShell>
+  );
+}
