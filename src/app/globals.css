@@ -216,3 +216,11 @@ button:hover .material-symbols-outlined,
   background-color: var(--accent);
   border: 1px solid var(--surface);
 }
+
+/* Premium bottom-border animated tabs */
+.tab-btn {
+  border-bottom: 2px solid transparent !important;
+}
+.tab-btn.active {
+  border-bottom: 2px solid var(--primary) !important;
+}

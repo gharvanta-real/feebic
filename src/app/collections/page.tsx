@@ -130,10 +130,10 @@ export default function BookmarkedCollectionsPage() {
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
-                  className={`text-[14px] font-extrabold pb-3.5 cursor-pointer transition-all border-b-2 leading-none relative flex items-center gap-1.5 shrink-0 ${
+                  className={`text-[14px] font-extrabold pb-3.5 cursor-pointer transition-all leading-none relative flex items-center gap-1.5 shrink-0 tab-btn ${
                     activeTab === tab.key
-                      ? "border-primary text-primary font-black"
-                      : "border-transparent text-text-muted hover:text-text-main"
+                      ? "active text-primary font-black"
+                      : "text-text-muted hover:text-text-main"
                   }`}
                 >
                   <span className="material-symbols-outlined text-[17px] leading-none" style={{ fontVariationSettings: activeTab === tab.key ? "'FILL' 1" : undefined }}>{tab.icon}</span>

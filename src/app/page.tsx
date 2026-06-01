@@ -146,10 +146,10 @@ export default function HomeFeedPage() {
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`border-b-2 pb-3.5 text-[14px] font-extrabold cursor-pointer transition-all leading-none whitespace-nowrap ${
+                  className={`pb-3.5 text-[14px] font-extrabold cursor-pointer transition-all leading-none whitespace-nowrap tab-btn ${
                     activeTab === tab
-                      ? "border-primary text-primary"
-                      : "border-transparent text-text-muted hover:text-text-main"
+                      ? "active text-primary"
+                      : "text-text-muted hover:text-text-main"
                   }`}
                 >
                   {tab}
