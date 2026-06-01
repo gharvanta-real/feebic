@@ -120,29 +120,17 @@ export default function HomeFeedPage() {
               </div>
             
               {/* Header Icons */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <button 
                   onClick={() => setShowSearchModal(!showSearchModal)}
-                  className={`grid h-10 w-10 place-items-center rounded-full border transition-all cursor-pointer ${
+                  className={`grid h-9 w-9 place-items-center rounded-full transition-all cursor-pointer ${
                     showSearchModal || searchQuery
-                      ? "border-primary/25 bg-primary/5 text-primary"
-                      : "border-border/60 bg-surface text-text-main hover:border-primary/25 hover:text-primary"
+                      ? "bg-primary/10 text-primary"
+                      : "text-text-muted hover:text-primary hover:bg-primary/5"
                   }`}
                   title="Search posts"
                 >
-                  <span className="material-symbols-outlined text-[21px] font-medium">search</span>
-                </button>
-                
-                <button 
-                  onClick={() => setShowFilterModal(true)}
-                  className={`grid h-10 w-10 place-items-center rounded-full border transition-all cursor-pointer ${
-                    showFilterModal || filterType !== "all" || sortBy !== "newest"
-                      ? "border-primary/25 bg-primary/5 text-primary"
-                      : "border-border/60 bg-surface text-text-main hover:border-primary/25 hover:text-primary"
-                  }`}
-                  title="Feed Filters"
-                >
-                  <span className="material-symbols-outlined text-[21px] font-medium">tune</span>
+                  <span className="material-symbols-outlined text-[22px]">search</span>
                 </button>
               </div>
             </div>
