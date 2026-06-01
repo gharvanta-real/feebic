@@ -144,7 +144,9 @@ export default function CreatePostPage() {
       mediaType,
       isPremium,
       priceNum,
-      finalPoll
+      finalPoll,
+      null,
+      isScheduled && scheduleDate ? new Date(scheduleDate).toISOString() : null
     );
 
     showToast("Post published successfully!");
@@ -342,6 +344,25 @@ export default function CreatePostPage() {
                     </div>
                   </div>
                 )}
+
+                {/* 4. Scheduling configuration */}
+                {isScheduled && (
+                  <div className="bg-background border border-border p-4 rounded-xl space-y-3 animate-fade-in select-none">
+                    <div>
+                      <h3 className="text-xs font-bold text-text-main">Schedule Publication Date</h3>
+                      <p className="text-[10px] text-text-muted mt-0.5">Select a future date and time to automatically publish this post.</p>
+                    </div>
+
+                    <input
+                      type="datetime-local"
+                      required
+                      value={scheduleDate}
+                      onChange={(e) => setScheduleDate(e.target.value)}
+                      min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+                      className="w-full px-4 py-2 bg-surface border border-border rounded-xl focus:border-primary transition-all text-xs font-bold outline-none text-text-main"
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Bottom Composer Toolbar */}
@@ -396,6 +417,18 @@ export default function CreatePostPage() {
                     title="Add Pay-Per-View lock pricing"
                   >
                     <span className="material-symbols-outlined text-[18px]" style={isPremium ? { fontVariationSettings: "'FILL' 1" } : undefined}>lock</span>
+                  </button>
+
+                  {/* Post scheduling toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setIsScheduled(!isScheduled)}
+                    className={`transition-colors flex items-center justify-center cursor-pointer ${
+                      isScheduled ? "text-primary animate-pulse" : "text-text-muted hover:text-primary"
+                    }`}
+                    title="Schedule post publication"
+                  >
+                    <span className="material-symbols-outlined text-[18px]" style={isScheduled ? { fontVariationSettings: "'FILL' 1" } : undefined}>schedule</span>
                   </button>
                 </div>
 

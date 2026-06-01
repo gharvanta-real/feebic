@@ -17,7 +17,8 @@ interface LiveComment {
 }
 
 export default function LiveStreamingPage() {
-  const { user, showToast } = useUser();
+  const { user, showToast, adjustBalance } = useUser();
+  const isCreatorMode = user?.role === "creator";
   
   // Live Chat States
   const [liveComments, setLiveComments] = useState<LiveComment[]>([]);
@@ -38,6 +39,12 @@ export default function LiveStreamingPage() {
   const [paymentPrice, setPaymentPrice] = useState(0);
   const [showTipPanel, setShowTipPanel] = useState(false);
   const [customTipAmount, setCustomTipAmount] = useState("25");
+
+  // Camera & Mic stream states for broadcasting creator
+  const [isMuted, setIsMuted] = useState(false);
+  const [isCamOff, setIsCamOff] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -86,6 +93,30 @@ export default function LiveStreamingPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (isCreatorMode) {
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then((stream) => {
+          localStreamRef.current = stream;
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+          showToast("Broadcasting webcam stream loaded!");
+        })
+        .catch((err) => {
+          console.warn("Live camera/mic access rejected:", err);
+          showToast("Failed to access camera/mic. Using backup stream.");
+        });
+    }
+
+    return () => {
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+        localStreamRef.current = null;
+      }
+    };
+  }, [isCreatorMode]);
+
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputVal.trim() || !user) return;
@@ -113,6 +144,10 @@ export default function LiveStreamingPage() {
   const handlePaymentConfirm = (tipMsg?: string) => {
     if (!user) return;
     const msg = tipMsg || "Contributed to stream!";
+    
+    // Deduct balance from fan wallet and credit creator
+    adjustBalance(-paymentPrice, `Tip to @demirose (Live)`, 'demirose');
+
     const newComment: LiveComment = {
       id: "lc_tip_" + Date.now(),
       name: user.displayName,
@@ -137,11 +172,13 @@ export default function LiveStreamingPage() {
   const goalPercentage = Math.round((goalCurrent / goalTarget) * 100);
 
   return (
-    <RoleGuard allowedRoles={["creator"]}>
+    <RoleGuard allowedRoles={["creator", "fan"]}>
       <AppShell>
         {/* Mobile Header */}
         <MobileHeader>
-          <span className="text-sm font-bold text-text-muted select-none">Live</span>
+          <span className="text-sm font-bold text-text-muted select-none">
+            {isCreatorMode ? "Broadcasting Studio" : "Watching Live"}
+          </span>
         </MobileHeader>
 
         {/* Main Content (Touching Sidebar) */}
@@ -160,6 +197,21 @@ export default function LiveStreamingPage() {
                   <span className="material-symbols-outlined text-[11px]">visibility</span>
                   <span>{viewerCount} viewers</span>
                 </span>
+                {isCreatorMode && (
+                  <button
+                    onClick={() => {
+                      if (confirm("End your live broadcast?")) {
+                        showToast("Live broadcast completed. Saving stream archive...");
+                        setTimeout(() => {
+                          window.location.href = "/studio";
+                        }, 1000);
+                      }
+                    }}
+                    className="bg-red-500 hover:bg-red-600 active:scale-95 text-white text-[9px] font-black px-3 py-0.5 rounded-full uppercase tracking-wider transition-all cursor-pointer shadow-md select-none"
+                  >
+                    End Stream
+                  </button>
+                )}
               </div>
 
               {/* Goal widget overlays inside broadcast */}
@@ -194,6 +246,54 @@ export default function LiveStreamingPage() {
                 </span>
               </div>
 
+              {/* Creator Broadcast Controls Overlay */}
+              {isCreatorMode && (
+                <div className="absolute bottom-16 left-4 z-10 flex gap-2">
+                  <button
+                    onClick={() => {
+                      if (localStreamRef.current) {
+                        localStreamRef.current.getAudioTracks().forEach(track => {
+                          track.enabled = !track.enabled;
+                        });
+                        setIsMuted(!isMuted);
+                        showToast(!isMuted ? "Microphone muted" : "Microphone unmuted");
+                      }
+                    }}
+                    className={`h-9 w-9 rounded-full flex items-center justify-center cursor-pointer transition-all border shadow-md ${
+                      isMuted
+                        ? "bg-red-600 border-red-600 text-white animate-pulse"
+                        : "bg-black/60 border-white/10 text-white hover:bg-black/80"
+                    }`}
+                    title={isMuted ? "Unmute Mic" : "Mute Mic"}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">
+                      {isMuted ? "mic_off" : "mic"}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (localStreamRef.current) {
+                        localStreamRef.current.getVideoTracks().forEach(track => {
+                          track.enabled = !track.enabled;
+                        });
+                        setIsCamOff(!isCamOff);
+                        showToast(!isCamOff ? "Camera feed paused" : "Camera feed resumed");
+                      }
+                    }}
+                    className={`h-9 w-9 rounded-full flex items-center justify-center cursor-pointer transition-all border shadow-md ${
+                      isCamOff
+                        ? "bg-red-600 border-red-600 text-white animate-pulse"
+                        : "bg-black/60 border-white/10 text-white hover:bg-black/80"
+                    }`}
+                    title={isCamOff ? "Turn Camera On" : "Turn Camera Off"}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">
+                      {isCamOff ? "videocam_off" : "videocam"}
+                    </span>
+                  </button>
+                </div>
+              )}
+
               {/* Broadcast Media Simulation Overlay */}
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20 flex flex-col justify-between p-4 pointer-events-none">
                 <div />
@@ -201,22 +301,46 @@ export default function LiveStreamingPage() {
                 {/* Creator Title Details */}
                 <div className="flex justify-between items-end text-white">
                   <div>
-                    <p className="text-xs font-bold leading-none mb-1">Weekly Live Payout Broadcast Q&A</p>
-                    <p className="text-[10px] text-white/80">Streaming from Mumbai Office Studio</p>
+                    <p className="text-xs font-bold leading-none mb-1">
+                      {isCreatorMode ? "Broadcasting Live: Q&A Session" : "Watching Demi Rose's Broadcast"}
+                    </p>
+                    <p className="text-[10px] text-white/80">
+                      {isCreatorMode ? "Streaming from your Office Studio" : "Weekly Live Payout Broadcast Q&A"}
+                    </p>
                   </div>
                   <span className="material-symbols-outlined text-white/50 text-[32px]">cast</span>
                 </div>
               </div>
 
-              {/* Blurred background image mock */}
-              <div
-                className="w-full h-full opacity-30"
-                style={{
-                  backgroundImage: "url('/assets/cb15617a79d7713ffa4a6de36f808a76.png')",
-                  backgroundSize: "cover",
-                  backgroundPosition: "center"
-                }}
-              />
+              {/* Actual local video stream or fallback blurred background */}
+              {isCreatorMode ? (
+                <div className="w-full h-full relative bg-neutral-950">
+                  {isCamOff ? (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-xs font-bold text-white/50 bg-neutral-950">
+                      <span className="material-symbols-outlined text-[36px] mb-2">videocam_off</span>
+                      <span>Camera Feed Paused</span>
+                    </div>
+                  ) : (
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      muted
+                      playsInline
+                      className="w-full h-full object-cover"
+                    />
+                  )}
+                </div>
+              ) : (
+                /* Blurred background image mock */
+                <div
+                  className="w-full h-full opacity-30"
+                  style={{
+                    backgroundImage: "url('/assets/cb15617a79d7713ffa4a6de36f808a76.png')",
+                    backgroundSize: "cover",
+                    backgroundPosition: "center"
+                  }}
+                />
+              )}
             </div>
 
             {/* Live Chat Viewport */}
@@ -258,48 +382,50 @@ export default function LiveStreamingPage() {
             {/* Chat Input Controls */}
             <div className="p-3 border-t border-border bg-surface shrink-0">
               <form onSubmit={handleSendMessage} className="flex gap-2">
-              <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setShowTipPanel(!showTipPanel)}
-                    className="bg-success/15 text-success hover:bg-success hover:text-white px-4 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer shrink-0 active:scale-95"
-                  >
-                    <span className="material-symbols-outlined text-[16px]">payments</span>
-                    <span>Tip</span>
-                  </button>
-                  {showTipPanel && (
-                    <div className="absolute bottom-full mb-2 left-0 w-52 bg-surface border border-border rounded-2xl p-3 z-40 space-y-2 animate-fade-in">
-                      <p className="text-[10px] font-black text-text-muted uppercase tracking-wider">Send a Tip</p>
-                      <div className="grid grid-cols-4 gap-1.5">
-                        {[5, 10, 25, 50].map(amt => (
-                          <button key={amt} onClick={() => triggerTip(amt)}
-                            className="py-1.5 border border-border rounded-lg text-[10px] font-black text-text-main hover:border-success hover:text-success transition-colors cursor-pointer">
-                            ${amt}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="flex gap-1.5">
-                        <div className="flex-grow flex items-center bg-background border border-border rounded-lg px-2 py-1 focus-within:border-success">
-                          <span className="text-[10px] font-bold text-text-muted mr-0.5">$</span>
-                          <input
-                            type="number"
-                            min="1"
-                            value={customTipAmount}
-                            onChange={(e) => setCustomTipAmount(e.target.value)}
-                            className="w-full text-[10px] bg-transparent outline-none text-text-main font-bold"
-                            placeholder="Custom"
-                          />
+                {!isCreatorMode && (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowTipPanel(!showTipPanel)}
+                      className="bg-success/15 text-success hover:bg-success hover:text-white px-4 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer shrink-0 active:scale-95"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">payments</span>
+                      <span>Tip</span>
+                    </button>
+                    {showTipPanel && (
+                      <div className="absolute bottom-full mb-2 left-0 w-52 bg-surface border border-border rounded-2xl p-3 z-40 space-y-2 animate-fade-in">
+                        <p className="text-[10px] font-black text-text-muted uppercase tracking-wider">Send a Tip</p>
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {[5, 10, 25, 50].map(amt => (
+                            <button key={amt} onClick={() => triggerTip(amt)}
+                              className="py-1.5 border border-border rounded-lg text-[10px] font-black text-text-main hover:border-success hover:text-success transition-colors cursor-pointer">
+                              ${amt}
+                            </button>
+                          ))}
                         </div>
-                        <button
-                          onClick={() => triggerTip()}
-                          className="bg-success text-white text-[10px] font-black px-2 rounded-lg cursor-pointer hover:opacity-90"
-                        >
-                          Send
-                        </button>
+                        <div className="flex gap-1.5">
+                          <div className="flex-grow flex items-center bg-background border border-border rounded-lg px-2 py-1 focus-within:border-success">
+                            <span className="text-[10px] font-bold text-text-muted mr-0.5">$</span>
+                            <input
+                              type="number"
+                              min="1"
+                              value={customTipAmount}
+                              onChange={(e) => setCustomTipAmount(e.target.value)}
+                              className="w-full text-[10px] bg-transparent outline-none text-text-main font-bold"
+                              placeholder="Custom"
+                            />
+                          </div>
+                          <button
+                            onClick={() => triggerTip()}
+                            className="bg-success text-white text-[10px] font-black px-2 rounded-lg cursor-pointer hover:opacity-90"
+                          >
+                            Send
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
 
                 <input
                   type="text"

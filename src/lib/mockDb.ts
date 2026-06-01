@@ -18,6 +18,10 @@ export interface Creator {
   photosCount?: string;
   videosCount?: string;
   joinedDate?: string;
+  discountActive?: boolean;
+  discountPercent?: number;
+  callsEnabled?: boolean;
+  callPricePerMin?: number;
 }
 
 export interface Post {
@@ -46,6 +50,8 @@ export interface Post {
     current: number;
   } | null;
   publishAt?: string | null;
+  repostedFromId?: string | null;
+  repostedBy?: string | null;
 }
 
 export interface ChatMessage {
@@ -57,6 +63,7 @@ export interface ChatMessage {
   price?: number;
   mediaUrl?: string;
   mediaType?: string;
+  audioDuration?: string;
 }
 
 export interface Transaction {
@@ -728,12 +735,56 @@ class MockDatabase {
 
   // Creators Listing API
   getCreators(): Record<string, Creator> {
-    return DEFAULT_CREATORS;
+    const list: Record<string, Creator> = {};
+    Object.keys(DEFAULT_CREATORS).forEach(username => {
+      const creatorObj = this.getCreator(username);
+      if (creatorObj) {
+        list[username] = creatorObj;
+      }
+    });
+    return list;
   }
 
   getCreator(username: string): Creator | null {
     const clean = username.replace("@", "");
-    return DEFAULT_CREATORS[clean] || null;
+    const base = DEFAULT_CREATORS[clean] || null;
+    if (!base) return null;
+    
+    if (this.isClient()) {
+      const savedPrice = localStorage.getItem(`ch_price_${clean}`);
+      const discountActive = localStorage.getItem(`ch_discount_active_${clean}`) === "true";
+      const discountPercent = parseInt(localStorage.getItem(`ch_discount_percent_${clean}`) || "0");
+      const callsEnabled = localStorage.getItem(`ch_calls_enabled_${clean}`) !== "false";
+      const callPricePerMin = parseFloat(localStorage.getItem(`ch_call_rate_${clean}`) || "5.00");
+      
+      return {
+        ...base,
+        subPrice: savedPrice ? parseFloat(savedPrice) : base.subPrice,
+        discountActive,
+        discountPercent: discountPercent || undefined,
+        callsEnabled,
+        callPricePerMin
+      };
+    }
+    return {
+      ...base,
+      callsEnabled: true,
+      callPricePerMin: 5.00
+    };
+  }
+
+  setCreatorDiscount(username: string, percent: number, active: boolean) {
+    const clean = username.replace("@", "");
+    this.setItem(`ch_discount_active_${clean}`, active ? "true" : "false");
+    this.setItem(`ch_discount_percent_${clean}`, percent.toString());
+    this.notify("ch_profile_updated");
+  }
+
+  setCreatorCallRate(username: string, enabled: boolean, rate: number) {
+    const clean = username.replace("@", "");
+    this.setItem(`ch_calls_enabled_${clean}`, enabled ? "true" : "false");
+    this.setItem(`ch_call_rate_${clean}`, rate.toString());
+    this.notify("ch_profile_updated");
   }
 
   // Subscriptions
@@ -813,7 +864,7 @@ class MockDatabase {
     return chats[creatorUsername] || [];
   }
 
-  sendMessage(creatorUsername: string, text: string, isPPV = false, price = 0, mediaUrl = "", mediaType = "image"): ChatMessage {
+  sendMessage(creatorUsername: string, text: string, isPPV = false, price = 0, mediaUrl = "", mediaType = "image", audioDuration = ""): ChatMessage {
     const chats = JSON.parse(this.getItem("ch_chats", "{}"));
     if (!chats[creatorUsername]) {
       chats[creatorUsername] = [];
@@ -828,7 +879,8 @@ class MockDatabase {
       isPPV,
       price,
       mediaUrl,
-      mediaType
+      mediaType,
+      audioDuration
     };
 
     chats[creatorUsername].push(newMsg);
@@ -977,6 +1029,34 @@ class MockDatabase {
       this.notify("ch_post_liked_bg");
     }, 5000);
 
+    return newPost;
+  }
+
+  repostPost(postId: string): Post {
+    const posts = this.getPosts(true);
+    const originalPost = posts.find(p => p.id === postId);
+    if (!originalPost) {
+      throw new Error("Post not found");
+    }
+
+    const newPost: Post = {
+      ...originalPost,
+      id: "post_repost_" + Date.now(),
+      creatorUsername: this.getItem("ch_user_username", "arivera"),
+      creatorName: this.getItem("ch_user_display_name", "Alex Rivera"),
+      creatorAvatar: this.getItem("ch_user_avatar", "/assets/cb15617a79d7713ffa4a6de36f808a76.png"),
+      isPinned: false,
+      likes: 0,
+      commentsCount: 0,
+      time: "Just now",
+      repostedFromId: postId,
+      repostedBy: this.getItem("ch_user_username", "arivera"),
+      publishAt: null
+    };
+
+    posts.unshift(newPost);
+    this.setItem("ch_posts", JSON.stringify(posts));
+    this.notify("ch_posts_updated");
     return newPost;
   }
 
@@ -1268,8 +1348,8 @@ class MockDatabase {
     this.notify("ch_profile_updated");
   }
 
-  getPostsByUser(username: string): Post[] {
-    const posts = this.getPosts();
+  getPostsByUser(username: string, includeFuture = false): Post[] {
+    const posts = this.getPosts(includeFuture);
     return posts.filter(p => p.creatorUsername === username);
   }
 

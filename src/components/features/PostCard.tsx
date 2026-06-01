@@ -53,6 +53,25 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
   const router = useRouter();
   const pathname = usePathname();
   const [post, setPost] = useState<Post>(initialPost);
+  const [repostedBy, setRepostedBy] = useState<string | null>(initialPost.repostedBy || null);
+  const [repostedFromId, setRepostedFromId] = useState<string | null>(initialPost.repostedFromId || null);
+
+  useEffect(() => {
+    if (initialPost.repostedFromId) {
+      setTimeout(() => {
+        const posts = mockDb.getPosts(true);
+        const original = posts.find(p => p.id === initialPost.repostedFromId);
+        if (original) {
+          setPost(original);
+        }
+      }, 0);
+    } else {
+      setPost(initialPost);
+    }
+    setRepostedBy(initialPost.repostedBy || null);
+    setRepostedFromId(initialPost.repostedFromId || null);
+  }, [initialPost]);
+
   const [isLiked, setIsLiked] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [likeAnim, setLikeAnim] = useState(false);
@@ -275,13 +294,13 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
   };
 
   const renderVideoPlayer = (src: string) => (
-    <div className="relative w-full group bg-black" style={{ maxHeight: 460 }}>
+    <div className="relative w-full group bg-black" style={{ maxHeight: 300 }}>
       <video
         ref={videoRef}
         src={src}
         playsInline
         preload="metadata"
-        className="w-full max-h-[460px] object-contain"
+        className="w-full max-h-[300px] object-contain"
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
         onTimeUpdate={handleVideoProgress}
@@ -349,7 +368,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
           {post.mediaType === "video" ? (
             renderVideoPlayer(urls[0])
           ) : (
-            <img src={urls[0]} alt="Post Media" className="w-full max-h-[460px] object-cover hover:scale-[1.01] transition-transform duration-300" />
+            <img src={urls[0]} alt="Post Media" className="w-full max-h-[300px] object-cover hover:scale-[1.01] transition-transform duration-300" />
           )}
         </div>
       );
@@ -450,8 +469,26 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
     );
   };
 
+  const isQueued = initialPost.publishAt && new Date(initialPost.publishAt).getTime() > Date.now();
+
   return (
     <article className="rounded-3xl border border-border/60 bg-surface p-4 md:p-5 space-y-3.5 transition-colors duration-200 hover:border-primary/20">
+      {/* Scheduled Queue header indicator */}
+      {isQueued && (
+        <div className="bg-primary/10 border border-primary/20 text-primary px-3.5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 select-none w-fit">
+          <span className="material-symbols-outlined text-[14px]">schedule</span>
+          <span>Scheduled for {new Date(initialPost.publishAt!).toLocaleString()}</span>
+        </div>
+      )}
+
+      {/* Repost Header */}
+      {repostedFromId && (
+        <div className="flex items-center gap-1.5 text-[10px] text-text-muted font-black uppercase tracking-wider select-none border-b border-border/40 pb-2">
+          <span className="material-symbols-outlined text-[15px]">repeat</span>
+          <span>@{repostedBy} reposted</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between select-none px-0.5">
         <Link href={`/profile?u=${post.creatorUsername}`} className="flex items-center gap-3 group min-w-0">
@@ -547,6 +584,20 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
                   <span className="material-symbols-outlined text-[16px]">{isBookmarked ? "bookmark_remove" : "bookmark"}</span>
                   {isBookmarked ? "Remove Bookmark" : "Bookmark Post"}
                 </button>
+                {!isLocked && !repostedFromId && (
+                  <button
+                    onClick={() => {
+                      mockDb.repostPost(post.id);
+                      showToast("Post reposted to your feed! 🔄");
+                      setShowMoreMenu(false);
+                      if (onPostUpdate) onPostUpdate();
+                    }}
+                    className="flex items-center gap-2 px-3 py-2 text-[11px] font-bold text-text-main hover:text-primary hover:bg-primary/5 rounded-xl w-full text-left cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">repeat</span>
+                    Repost Post
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     mockDb.reportPost(post.id);
@@ -649,7 +700,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
       {/* Media Section */}
       <div className="relative rounded-2xl overflow-hidden border border-border">
         {isLocked ? (
-          <div className="relative flex flex-col items-center justify-center min-h-[340px] p-6 text-center z-10">
+          <div className="relative flex flex-col items-center justify-center min-h-[225px] p-6 text-center z-10">
             <div
               className="absolute inset-0 filter blur-3xl opacity-35 scale-105 pointer-events-none"
               style={{

@@ -9,6 +9,7 @@ import { useUser } from "@/context/UserContext";
 import { mockDb, Creator, Post } from "@/lib/mockDb";
 import { PaymentModal } from "@/components/ui/PaymentModal";
 import { VerifiedBadge } from "@/components/ui/VerifiedBadge";
+import { PostCard } from "@/components/features/PostCard";
 
 function ProfileContent() {
   const router = useRouter();
@@ -20,7 +21,7 @@ function ProfileContent() {
   const [profileData, setProfileData] = useState<Creator | null>(null);
   const [isSelf, setIsSelf] = useState(false);
   const [posts, setPosts] = useState<Post[]>([]);
-  const [activeTab, setActiveTab] = useState<"posts" | "photos" | "videos" | "likes">("posts");
+  const [activeTab, setActiveTab] = useState<"posts" | "photos" | "videos" | "likes" | "queue">("posts");
 
   // Payment modal state
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
@@ -58,7 +59,7 @@ function ProfileContent() {
         videosCount: "356",
         joinedDate: "Sep 2020"
       });
-      setPosts(mockDb.getPostsByUser(user.username));
+      setPosts(mockDb.getPostsByUser(user.username, true));
     } else {
       // Viewing someone else's profile
       setIsSelf(false);
@@ -102,16 +103,22 @@ function ProfileContent() {
   const handleSubscribe = () => {
     if (isSubbed) return;
     setPaymentTitle(`Subscribe to @${profileData.username}`);
-    setPaymentPrice(profileData.subPrice);
+    const priceVal = profileData.discountActive
+      ? parseFloat((profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)).toFixed(2))
+      : profileData.subPrice;
+    setPaymentPrice(priceVal);
     setSelectedPost(null);
     setIsPaymentOpen(true);
   };
 
   const handleSubscribeBundle = (months: number, discount: number) => {
     if (isSubbed) return;
-    const price = parseFloat((profileData.subPrice * months * (1 - discount / 100)).toFixed(2));
+    const basePrice = profileData.discountActive
+      ? profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)
+      : profileData.subPrice;
+    const priceVal = parseFloat((basePrice * months * (1 - discount / 100)).toFixed(2));
     setPaymentTitle(`Subscribe to @${profileData.username} for ${months} Months`);
-    setPaymentPrice(price);
+    setPaymentPrice(priceVal);
     setSelectedPost(null);
     setIsPaymentOpen(true);
   };
@@ -152,16 +159,22 @@ function ProfileContent() {
   };
 
   const getFilteredPosts = () => {
-    if (activeTab === "posts") {
-      return posts;
-    } else if (activeTab === "photos") {
-      return posts.filter(p => p.mediaType === "image");
-    } else if (activeTab === "videos") {
-      return posts.filter(p => p.mediaType === "video");
-    } else if (activeTab === "likes") {
-      return posts.filter(p => mockDb.isPostLiked(p.id));
+    const now = Date.now();
+    if (activeTab === "queue") {
+      return posts.filter(p => p.publishAt && new Date(p.publishAt).getTime() > now);
     }
-    return posts;
+    const published = posts.filter(p => !p.publishAt || new Date(p.publishAt).getTime() <= now);
+    
+    if (activeTab === "posts") {
+      return published;
+    } else if (activeTab === "photos") {
+      return published.filter(p => p.mediaType === "image");
+    } else if (activeTab === "videos") {
+      return published.filter(p => p.mediaType === "video");
+    } else if (activeTab === "likes") {
+      return published.filter(p => mockDb.isPostLiked(p.id));
+    }
+    return published;
   };
 
   const filteredPosts = getFilteredPosts();
@@ -275,6 +288,25 @@ function ProfileContent() {
                       </Link>
                     )}
 
+                    {isSubbed && profileData.callsEnabled && (
+                      <>
+                        <Link
+                          href={`/chat?u=${profileData.username}&call=audio`}
+                          className="h-8 w-8 rounded-full border border-border text-text-muted hover:border-primary hover:text-primary hover:bg-primary/5 flex items-center justify-center transition-colors shrink-0"
+                          title="Audio Call Creator"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">phone</span>
+                        </Link>
+                        <Link
+                          href={`/chat?u=${profileData.username}&call=video`}
+                          className="h-8 w-8 rounded-full border border-border text-text-muted hover:border-primary hover:text-primary hover:bg-primary/5 flex items-center justify-center transition-colors shrink-0"
+                          title="Video Call Creator"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">videocam</span>
+                        </Link>
+                      </>
+                    )}
+
                     <button
                       onClick={handleSubscribe}
                       className={`px-5 py-2 rounded-full text-xs transition-all cursor-pointer ${
@@ -355,7 +387,17 @@ function ProfileContent() {
             <div className="bg-[#e8f5ff] dark:bg-primary/8 rounded-2xl p-4 flex items-center justify-between shadow-sm">
               <div>
                 <p className="text-[13px] font-black text-text-main font-sans">Subscription</p>
-                <p className="text-[11.5px] text-text-muted font-bold mt-0.75">${profileData.subPrice} per month</p>
+                {profileData.discountActive ? (
+                  <p className="text-[11.5px] font-bold mt-0.75 text-success">
+                    <span className="line-through text-text-muted mr-1.5">${profileData.subPrice}</span>
+                    <span>${(profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)).toFixed(2)} per month</span>
+                    <span className="bg-success text-white text-[8px] font-black uppercase px-2 py-0.5 rounded-full ml-2 select-none tracking-wider">
+                      {profileData.discountPercent}% OFF
+                    </span>
+                  </p>
+                ) : (
+                  <p className="text-[11.5px] text-text-muted font-bold mt-0.75">${profileData.subPrice} per month</p>
+                )}
               </div>
               <button
                 onClick={handleSubscribe}
@@ -381,7 +423,9 @@ function ProfileContent() {
                 <div>
                   <p className="text-[12.5px] font-extrabold text-text-main">3 MONTHS (10% off)</p>
                   <p className="text-[11px] text-text-muted font-semibold mt-0.75">
-                    ${(profileData.subPrice * 3 * 0.9).toFixed(2)} total
+                    ${((profileData.discountActive 
+                      ? profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)
+                      : profileData.subPrice) * 3 * 0.9).toFixed(2)} total
                   </p>
                 </div>
                 <button
@@ -401,7 +445,9 @@ function ProfileContent() {
                 <div>
                   <p className="text-[12.5px] font-extrabold text-text-main">6 MONTHS (15% off)</p>
                   <p className="text-[11px] text-text-muted font-semibold mt-0.75">
-                    ${(profileData.subPrice * 6 * 0.85).toFixed(2)} total
+                    ${((profileData.discountActive 
+                      ? profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)
+                      : profileData.subPrice) * 6 * 0.85).toFixed(2)} total
                   </p>
                 </div>
                 <button
@@ -436,7 +482,13 @@ function ProfileContent() {
                 onClick={handleSubscribe}
                 className="bg-primary hover:bg-primary-hover active:scale-95 text-white px-8 py-3 rounded-full text-xs font-black uppercase tracking-wider shadow-md shadow-primary/10 transition-all flex items-center gap-1.5 cursor-pointer"
               >
-                <span>Subscribe for ${profileData.subPrice}/mo</span>
+                <span>
+                  Subscribe for $
+                  {profileData.discountActive
+                    ? (profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)).toFixed(2)
+                    : profileData.subPrice}
+                  /mo
+                </span>
               </button>
             </div>
           ) : (
@@ -479,15 +531,44 @@ function ProfileContent() {
                   <span className="material-symbols-outlined text-[19px] font-medium" style={activeTab === "likes" ? { fontVariationSettings: "'FILL' 1" } : undefined}>favorite</span>
                   <span className="text-[9px] font-black tracking-wider uppercase">LIKES</span>
                 </button>
+                {isSelf && (
+                  <button
+                    onClick={() => setActiveTab("queue")}
+                    className={`flex-1 py-3 flex flex-col items-center justify-center transition-colors cursor-pointer border-b-2 leading-none gap-1.5 ${
+                      activeTab === "queue" ? "border-primary text-primary" : "border-transparent text-text-muted"
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[19px] font-medium" style={activeTab === "queue" ? { fontVariationSettings: "'FILL' 1" } : undefined}>schedule</span>
+                    <span className="text-[9px] font-black tracking-wider uppercase">QUEUE</span>
+                  </button>
+                )}
               </div>
 
               {/* Grid Viewport */}
               <div className="p-3.5 select-none">
-                {filteredPosts.length === 0 ? (
+                {activeTab === "queue" ? (
+                  <div className="space-y-5">
+                    {filteredPosts.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-20 text-center space-y-2.5">
+                        <span className="material-symbols-outlined text-[44px] text-text-muted animate-pulse">schedule</span>
+                        <p className="text-xs font-extrabold text-text-main uppercase tracking-wider">Empty queue</p>
+                        <p className="text-[11px] text-text-muted max-w-[240px]">You have no scheduled updates in your queue.</p>
+                      </div>
+                    ) : (
+                      filteredPosts.map((post) => (
+                        <PostCard
+                          key={post.id}
+                          post={post}
+                          onPostUpdate={fetchProfile}
+                        />
+                      ))
+                    )}
+                  </div>
+                ) : filteredPosts.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-center space-y-2.5">
                     <span className="material-symbols-outlined text-[44px] text-text-muted">feed</span>
                     <p className="text-xs font-extrabold text-text-main uppercase tracking-wider">No updates listed</p>
-                    <p className="text-[11px] text-text-muted max-w-[240px]">This tab has no active media updates published.</p>
+                    <p className="text-[11px] text-text-muted max-w-[240px]">This tab has no active updates published.</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">

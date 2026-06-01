@@ -73,9 +73,11 @@ export default function SecuritySettingsPage() {
           </div>
           <button
             onClick={() => handleToggle("ch_security_2fa", twoFactor, setTwoFactor, "2-Factor authentication")}
-            className="relative h-6 w-10 cursor-pointer rounded-full border border-border bg-[hsl(var(--background-hsl))] p-[2px] transition-colors"
+            className={`relative h-6 w-10 cursor-pointer rounded-full border p-[2px] transition-colors ${
+              twoFactor ? "bg-success border-success" : "bg-gray-200 dark:bg-border"
+            }`}
           >
-            <div className={`h-4 w-4 rounded-full bg-primary shadow-sm transition-transform ${twoFactor ? "translate-x-4" : "translate-x-0"}`}></div>
+            <div className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${twoFactor ? "translate-x-4" : "translate-x-0"}`}></div>
           </button>
         </div>
 
@@ -87,9 +89,11 @@ export default function SecuritySettingsPage() {
           </div>
           <button
             onClick={() => handleToggle("ch_security_biometric", biometric, setBiometric, "Biometrics")}
-            className="relative h-6 w-10 cursor-pointer rounded-full border border-border bg-[hsl(var(--background-hsl))] p-[2px] transition-colors"
+            className={`relative h-6 w-10 cursor-pointer rounded-full border p-[2px] transition-colors ${
+              biometric ? "bg-success border-success" : "bg-gray-200 dark:bg-border"
+            }`}
           >
-            <div className={`h-4 w-4 rounded-full bg-primary shadow-sm transition-transform ${biometric ? "translate-x-4" : "translate-x-0"}`}></div>
+            <div className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${biometric ? "translate-x-4" : "translate-x-0"}`}></div>
           </button>
         </div>
       </div>
