@@ -280,10 +280,10 @@ function ProfileContent() {
                       className={`px-5 py-2 rounded-full text-xs transition-all cursor-pointer ${
                         isSubbed
                           ? "bg-black/5 dark:bg-white/5 text-text-muted border border-border font-semibold"
-                          : "bg-primary text-white hover:opacity-95 shadow-md font-bold uppercase tracking-wider"
+                          : "bg-primary text-white hover:opacity-95 shadow-md font-bold"
                       }`}
                     >
-                      {isSubbed ? "Subscribed" : profileData.subPrice === 0 ? "SUBSCRIBE FREE" : `SUBSCRIBE`}
+                      {isSubbed ? "Subscribed" : profileData.subPrice === 0 ? "Subscribe Free" : "Subscribe"}
                     </button>
                   </>
                 )}
@@ -362,10 +362,10 @@ function ProfileContent() {
                 className={`text-xs px-6 py-2.5 rounded-full transition-all cursor-pointer shadow-sm ${
                   isSubbed
                     ? "bg-black/5 dark:bg-white/5 text-text-muted border border-border/80 font-semibold cursor-default select-none"
-                    : "bg-primary hover:bg-primary-hover text-white font-black uppercase tracking-wider"
+                    : "bg-primary hover:bg-primary-hover text-white font-black"
                 }`}
               >
-                {isSubbed ? "Subscribed" : "SUBSCRIBE"}
+                {isSubbed ? "Subscribed" : "Subscribe"}
               </button>
             </div>
           </div>
@@ -389,10 +389,10 @@ function ProfileContent() {
                   className={`text-xs px-5 py-2 rounded-full transition-all cursor-pointer ${
                     isSubbed
                       ? "bg-black/5 dark:bg-white/5 text-text-muted border border-border/80 font-semibold cursor-default select-none"
-                      : "border border-primary text-primary hover:bg-primary/5 font-black uppercase tracking-wider"
+                      : "border border-primary text-primary hover:bg-primary/5 font-black"
                   }`}
                 >
-                  {isSubbed ? "Subscribed" : "SUBSCRIBE"}
+                  {isSubbed ? "Subscribed" : "Subscribe"}
                 </button>
               </div>
 
@@ -409,10 +409,10 @@ function ProfileContent() {
                   className={`text-xs px-5 py-2 rounded-full transition-all cursor-pointer ${
                     isSubbed
                       ? "bg-black/5 dark:bg-white/5 text-text-muted border border-border/80 font-semibold cursor-default select-none"
-                      : "border border-primary text-primary hover:bg-primary/5 font-black uppercase tracking-wider"
+                      : "border border-primary text-primary hover:bg-primary/5 font-black"
                   }`}
                 >
-                  {isSubbed ? "Subscribed" : "SUBSCRIBE"}
+                  {isSubbed ? "Subscribed" : "Subscribe"}
                 </button>
               </div>
             </div>

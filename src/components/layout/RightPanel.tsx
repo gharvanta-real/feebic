@@ -75,10 +75,10 @@ export const RightPanel: React.FC = () => {
                   className={`text-[10.5px] px-3.5 py-1.5 rounded-full shrink-0 transition-all cursor-pointer ${
                     isSubbed
                       ? "bg-[hsl(var(--text-muted-hsl)/0.08)] text-text-muted border border-border/60 cursor-default select-none font-semibold"
-                      : "border border-primary text-primary hover:bg-primary hover:text-white active:scale-95 font-bold uppercase tracking-wider"
+                      : "border border-primary text-primary hover:bg-primary hover:text-white active:scale-95 font-bold"
                   }`}
                 >
-                  {isSubbed ? "Subscribed" : "SUBSCRIBE"}
+                  {isSubbed ? "Subscribed" : "Subscribe"}
                 </button>
               </div>
             );
@@ -162,7 +162,7 @@ export const RightPanel: React.FC = () => {
 
                   <button 
                     onClick={() => handleSubscribeClick(item.username, item.price)}
-                    className="flex shrink-0 items-center gap-1 rounded-full bg-[#0f172a] px-3 py-1.5 text-[10.5px] font-black text-white transition-all hover:bg-[#1e293b] active:scale-95 cursor-pointer"
+                    className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 border border-primary/25 px-3 py-1.5 text-[10.5px] font-bold text-primary transition-all hover:bg-primary hover:text-white active:scale-95 cursor-pointer"
                   >
                     <span className="material-symbols-outlined text-[12px] leading-none" style={{ fontVariationSettings: "'FILL' 1" }}>lock</span>
                     <span>${item.price.toFixed(2)}</span>
