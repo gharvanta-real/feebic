@@ -92,18 +92,18 @@ export const Sidebar: React.FC = () => {
               } ${
                 active
                   ? "bg-primary/10 text-primary font-bold shadow-none"
-                  : "text-text-main hover:bg-primary/5 hover:text-primary"
+                  : "text-text-main hover:bg-primary/5"
               }`}
             >
               <span
-                className="material-symbols-outlined text-[24px] shrink-0"
+                className={`material-symbols-outlined text-[24px] shrink-0 ${active ? "text-primary" : ""}`}
                 style={active ? { fontVariationSettings: "'FILL' 1" } : undefined}
               >
                 {lnk.icon}
               </span>
               
               {!isCollapsed && (
-                <span className="text-[14.5px] font-bold tracking-wide flex-grow select-none">
+                <span className={`text-[14.5px] font-bold tracking-wide flex-grow select-none ${active ? "text-primary" : ""}`}>
                   {lnk.label}
                 </span>
               )}
@@ -196,21 +196,21 @@ export const Sidebar: React.FC = () => {
         <div className="absolute bottom-[80px] left-6 right-6 bg-surface border border-border rounded-2xl shadow-xl p-2 z-[60] animate-fade-in flex flex-col space-y-0.5">
           <button 
             onClick={() => { router.push("/profile"); setShowMoreMenu(false); }}
-            className="flex items-center gap-3 px-3.5 py-2.5 text-xs font-bold hover:bg-primary/5 text-text-main hover:text-primary rounded-xl w-full text-left cursor-pointer"
+            className="flex items-center gap-3 px-3.5 py-2.5 text-xs font-bold hover:bg-primary/5 text-text-main rounded-xl w-full text-left cursor-pointer"
           >
             <span className="material-symbols-outlined text-[18px]">person</span>
             <span>My Profile</span>
           </button>
           <button 
             onClick={() => { router.push("/wallet"); setShowMoreMenu(false); }}
-            className="flex items-center gap-3 px-3.5 py-2.5 text-xs font-bold hover:bg-primary/5 text-text-main hover:text-primary rounded-xl w-full text-left cursor-pointer"
+            className="flex items-center gap-3 px-3.5 py-2.5 text-xs font-bold hover:bg-primary/5 text-text-main rounded-xl w-full text-left cursor-pointer"
           >
             <span className="material-symbols-outlined text-[18px]">account_balance_wallet</span>
             <span>Wallet Account</span>
           </button>
           <button 
             onClick={() => { router.push("/settings"); setShowMoreMenu(false); }}
-            className="flex items-center gap-3 px-3.5 py-2.5 text-xs font-bold hover:bg-primary/5 text-text-main hover:text-primary rounded-xl w-full text-left cursor-pointer"
+            className="flex items-center gap-3 px-3.5 py-2.5 text-xs font-bold hover:bg-primary/5 text-text-main rounded-xl w-full text-left cursor-pointer"
           >
             <span className="material-symbols-outlined text-[18px]">settings</span>
             <span>Settings</span>
