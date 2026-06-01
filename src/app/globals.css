@@ -41,10 +41,29 @@ a {
   justify-content: center;
   line-height: 1;
   vertical-align: middle;
+  opacity: 0.65;
+  transition: opacity var(--transition-fast), color var(--transition-fast);
 }
 
 .material-symbols-outlined:not([class*="text-["]) {
   font-size: 1em;
+}
+
+/* Keep icons fully opaque when they or their parent containers are colored (primary, active, success, etc.) */
+.material-symbols-outlined[class*="text-"],
+[class*="text-primary"] .material-symbols-outlined,
+[class*="text-accent"] .material-symbols-outlined,
+[class*="text-success"] .material-symbols-outlined,
+[class*="text-emerald"] .material-symbols-outlined {
+  opacity: 1;
+}
+
+/* Light up icons smoothly on hover of their clickable container or the icon itself */
+a:hover .material-symbols-outlined,
+button:hover .material-symbols-outlined,
+.material-symbols-outlined:hover,
+[role="button"]:hover .material-symbols-outlined {
+  opacity: 0.95;
 }
 
 *,
