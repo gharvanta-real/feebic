@@ -56,8 +56,8 @@ export const Sidebar: React.FC = () => {
 
   return (
     <aside
-      className={`fixed left-0 top-0 z-50 flex h-full flex-col border-r border-border bg-surface py-5 px-5 transition-all duration-300 ${
-        isCollapsed ? "w-[80px]" : "w-[260px]"
+      className={`fixed left-0 top-0 z-50 flex h-full flex-col border-r border-border bg-surface py-5 transition-all duration-300 ${
+        isCollapsed ? "w-[80px] px-3" : "w-[260px] px-5"
       } max-md:hidden`}
     >
       {/* 1. Brand Logo Row (Lowercase Sky-Blue - OnlyFans Style) */}
@@ -92,7 +92,7 @@ export const Sidebar: React.FC = () => {
               } ${
                 active
                   ? "bg-primary/10 text-primary font-bold shadow-none"
-                  : "text-text-main hover:bg-primary/5"
+                  : "text-text-muted hover:text-text-main hover:bg-primary/5"
               }`}
             >
               <span
