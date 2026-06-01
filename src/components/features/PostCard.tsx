@@ -357,8 +357,8 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
 
     if (post.creatorUsername === "demirose" || urls.length === 6) {
       return (
-        <div className="flex gap-1 w-full h-[380px] overflow-hidden select-none">
-          <div className="w-[65%] h-full relative bg-black overflow-hidden group">
+        <div className="flex gap-2 w-full h-[380px] overflow-hidden select-none">
+          <div className="w-[65%] h-full relative bg-black overflow-hidden group rounded-xl">
             <img src={urls[carouselIndex]} className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.02] cursor-pointer" alt="main" />
             <button onClick={(e) => prevSlide(urls.length, e)} className="absolute left-3 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity">
               <span className="material-symbols-outlined text-[20px]">chevron_left</span>
@@ -370,11 +370,11 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
               {carouselIndex + 1}/{urls.length}
             </div>
           </div>
-          <div className="w-[35%] h-full flex flex-col gap-1">
+          <div className="w-[35%] h-full flex flex-col gap-2">
             {urls.slice(1, 4).map((url, idx) => {
               const isActive = urls.indexOf(url) === carouselIndex;
               return (
-                <div key={idx} onClick={() => setCarouselIndex(urls.indexOf(url))} className={`flex-1 overflow-hidden relative cursor-pointer border-2 ${isActive ? "border-primary" : "border-transparent"}`}>
+                <div key={idx} onClick={() => setCarouselIndex(urls.indexOf(url))} className={`flex-1 overflow-hidden relative cursor-pointer border-2 rounded-xl ${isActive ? "border-primary" : "border-transparent"}`}>
                   <img src={url} className="h-full w-full object-cover hover:scale-105 transition-transform duration-300" alt="sub" />
                   {idx === 2 && urls.length > 4 && (
                     <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white font-black text-sm">+{urls.length - 4}</div>
@@ -389,8 +389,8 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
 
     if (post.creatorUsername === "austinwolf" || urls.length === 5) {
       return (
-        <div className="flex gap-1 w-full h-[380px] overflow-hidden select-none">
-          <div className="w-[65%] h-full relative bg-black overflow-hidden group">
+        <div className="flex gap-2 w-full h-[380px] overflow-hidden select-none">
+          <div className="w-[65%] h-full relative bg-black overflow-hidden group rounded-xl">
             {post.mediaType === "video" && carouselIndex === 0 ? (
               renderVideoPlayer(urls[0])
             ) : (
@@ -406,11 +406,11 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
               {carouselIndex + 1}/{urls.length}
             </div>
           </div>
-          <div className="w-[35%] h-full grid grid-cols-2 grid-rows-2 gap-1">
+          <div className="w-[35%] h-full grid grid-cols-2 grid-rows-2 gap-2">
             {urls.slice(1, 5).map((url, idx) => {
               const isActive = urls.indexOf(url) === carouselIndex;
               return (
-                <div key={idx} onClick={() => setCarouselIndex(urls.indexOf(url))} className={`overflow-hidden relative cursor-pointer border-2 ${isActive ? "border-primary" : "border-transparent"}`}>
+                <div key={idx} onClick={() => setCarouselIndex(urls.indexOf(url))} className={`overflow-hidden relative cursor-pointer border-2 rounded-xl ${isActive ? "border-primary" : "border-transparent"}`}>
                   <img src={url} className="h-full w-full object-cover hover:scale-105 transition-transform duration-300" alt="sub" />
                   {urls.indexOf(url) === 0 && post.mediaType === "video" && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/30">

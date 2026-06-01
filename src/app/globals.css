@@ -232,3 +232,12 @@ button:hover .material-symbols-outlined,
 .tab-btn.active {
   border-bottom: 2px solid var(--primary) !important;
 }
+
+/* Ensure all content images and videos have rounded corners unless they are circular avatars */
+img:not(.rounded-full) {
+  border-radius: var(--radius-xl, 12px);
+}
+video:not(.rounded-full) {
+  border-radius: var(--radius-xl, 12px);
+}
+
