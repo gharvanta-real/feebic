@@ -6,8 +6,9 @@ import { AppShell } from "@/components/layout/AppShell";
 import { MobileHeader } from "@/components/layout/MobileHeader";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { useUser } from "@/context/UserContext";
-import { mockDb, CustomList, VaultItem } from "@/lib/mockDb";
+import type { CustomList, VaultItem } from "@/lib/mockDb";
 import { Modal } from "@/components/ui/Modal";
+import { apiClient } from "@/lib/apiClient";
 
 export default function MassMessagePage() {
   const router = useRouter();
@@ -31,10 +32,34 @@ export default function MassMessagePage() {
   const [isBroadcasting, setIsBroadcasting] = useState(false);
 
   useEffect(() => {
-    setTimeout(() => {
-      setCustomLists(mockDb.getCustomLists());
-      setVaultItems(mockDb.getVaultItems());
-    }, 0);
+    const fetchVault = async () => {
+      try {
+        const data = await apiClient.get<any[]>("/vault");
+        setVaultItems(data.map((item) => ({
+          id: item.id,
+          name: item.name,
+          url: item.url,
+          type: item.type,
+          size: item.size,
+          usageCount: item.usage_count || 0,
+          date: item.date,
+        })));
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Failed to load vault media");
+      }
+    };
+
+    const fetchLists = async () => {
+      try {
+        const data = await apiClient.get<any[]>("/lists");
+        setCustomLists(data);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Failed to load custom lists");
+      }
+    };
+
+    fetchLists();
+    fetchVault();
   }, []);
 
   const handleSelectVaultItem = (item: VaultItem) => {
@@ -45,7 +70,7 @@ export default function MassMessagePage() {
     showToast(`Attached ${item.name} from Vault`);
   };
 
-  const handleBroadcast = (e: React.FormEvent) => {
+  const handleBroadcast = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim() && !mediaUrl) {
       showToast("Please enter message text or attach a file.");
@@ -55,20 +80,22 @@ export default function MassMessagePage() {
     setIsBroadcasting(true);
     const lockPrice = isPPV ? parseFloat(price) || 14.99 : 0;
 
-    setTimeout(() => {
+    try {
+      const res = await apiClient.post<{ delivered_to: number; has_receivers: boolean }>("/chat/broadcast", {
+        message: content.trim(),
+        media_url: mediaUrl,
+        media_type: mediaType,
+        is_ppv: isPPV,
+        price: lockPrice,
+        target_list: targetList,
+      });
       setIsBroadcasting(false);
-      mockDb.broadcastMessage(
-        content.trim(),
-        mediaUrl,
-        mediaType,
-        isPPV,
-        lockPrice,
-        targetList
-      );
-      
-      showToast("Mass message broadcast completed successfully!");
+      showToast(res.has_receivers ? `Broadcast delivered to ${res.delivered_to} subscribers.` : "Broadcast saved, but you have no active subscribers yet.");
       router.push("/chat");
-    }, 1500);
+    } catch (err) {
+      setIsBroadcasting(false);
+      showToast(err instanceof Error ? err.message : "Broadcast failed");
+    }
   };
 
   return (
@@ -107,11 +134,11 @@ export default function MassMessagePage() {
                 disabled={isBroadcasting}
                 className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:border-primary transition-all text-xs font-semibold outline-none text-text-main"
               >
-                <option value="all">All Subscribers (VIP Tippers, Close Friends & Fans)</option>
+                <option value="all">All Active Subscribers</option>
                 <option value="favorites">Favorites List</option>
                 {customLists.map((list) => (
                   <option key={list.id} value={list.id}>
-                    List: {list.name} ({list.usernames.length} fans)
+                    List: {list.name} ({list.usernames ? list.usernames.length : 0} fans)
                   </option>
                 ))}
               </select>

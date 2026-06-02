@@ -23,15 +23,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider>
-      <html lang="en" className={`${inter.variable}`} style={{ colorScheme: "light dark" }}>
-        <head>
-          <link
-            rel="stylesheet"
-            href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block"
-          />
-        </head>
-        <body>
+    <html lang="en" className={`${inter.variable}`} style={{ colorScheme: "light dark" }} suppressHydrationWarning>
+      <body>
+        <ClerkProvider dynamic>
           <ThemeProvider>
             <SidebarProvider>
               <UserProvider>
@@ -39,8 +33,8 @@ export default function RootLayout({
               </UserProvider>
             </SidebarProvider>
           </ThemeProvider>
-        </body>
-      </html>
-    </ClerkProvider>
+        </ClerkProvider>
+      </body>
+    </html>
   );
 }

@@ -46,7 +46,7 @@ export default function EditProfileSettingsPage() {
     }
   }, [user]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanUsername = username.trim().toLowerCase().replace(/^@/, "").replace(/[^a-z0-9_]/g, "");
 
@@ -59,7 +59,7 @@ export default function EditProfileSettingsPage() {
       return;
     }
 
-    updateProfile({
+    const ok = await updateProfile({
       displayName: displayName.trim(),
       username: cleanUsername,
       bio: bio.trim(),
@@ -69,8 +69,10 @@ export default function EditProfileSettingsPage() {
       website: website.trim(),
     });
 
-    showToast("Profile updated successfully!");
-    setTimeout(() => router.push("/settings"), 600);
+    if (ok) {
+      showToast("Profile updated successfully!");
+      setTimeout(() => router.push("/settings"), 600);
+    }
   };
 
   if (!user) return null;

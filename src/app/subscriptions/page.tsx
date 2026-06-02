@@ -6,8 +6,10 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { MobileHeader } from "@/components/layout/MobileHeader";
 import { useUser } from "@/context/UserContext";
-import { mockDb, SubDetails, Creator } from "@/lib/mockDb";
+import type { SubDetails, Creator } from "@/lib/mockDb";
+import { apiClient } from "@/lib/apiClient";
 import { VerifiedBadge } from "@/components/ui/VerifiedBadge";
+import { RoleGuard } from "@/components/layout/RoleGuard";
 
 export default function SubscriptionsPage() {
   const router = useRouter();
@@ -16,16 +18,42 @@ export default function SubscriptionsPage() {
   const [suggestions, setSuggestions] = useState<Creator[]>([]);
   const [activeTab, setActiveTab] = useState<"active" | "expired" | "suggestions">("active");
 
-  const fetchData = () => {
+  const mapCreator = (creator: any): Creator => ({
+    name: creator.display_name || creator.displayName || creator.name || "Felbic Creator",
+    username: creator.username,
+    avatar: creator.avatar || "/assets/39bc5c3eed51d62c1022c60686bb459a.png",
+    cover: creator.cover_photo || creator.coverPhoto || creator.cover || "/assets/cb15617a79d7713ffa4a6de36f808a76.png",
+    bio: creator.bio || "",
+    location: creator.location || "",
+    website: creator.website || "",
+    likes: "0",
+    subPrice: creator.sub_price || creator.subPrice || 0,
+    verified: true,
+    tag: "Creator",
+    fansCount: "0",
+  });
+
+  const fetchData = async () => {
     // Refresh user context and fetch latest DB info
-    refreshUserProfile();
-    setSubDetails(mockDb.getSubDetailsList());
-    
-    // Fetch suggestions (creators the user is not subscribed to)
-    const allCreators = Object.values(mockDb.getCreators());
-    const currentSubs = mockDb.getSubscriptions();
-    const filtered = allCreators.filter(c => !currentSubs.includes(c.username));
-    setSuggestions(filtered);
+    await refreshUserProfile();
+    try {
+      const subs = await apiClient.get<any[]>("/users/subscriptions");
+      setSubDetails(subs.map((sub) => ({
+        username: sub.username,
+        name: sub.name || sub.displayName,
+        avatar: sub.avatar,
+        price: sub.price || sub.subPrice || 0,
+        status: sub.status,
+        expiryDate: sub.expiryDate || (sub.expires_at ? new Date(sub.expires_at).toLocaleDateString() : ""),
+        autoRenew: Boolean(sub.autoRenew),
+      })));
+
+      const creators = (await apiClient.get<any[]>("/users/creators")).map(mapCreator);
+      const activeUsernames = subs.filter((s) => s.status === "active").map((s) => s.username);
+      setSuggestions(creators.filter((c) => !activeUsernames.includes(c.username)));
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to load subscriptions");
+    }
   };
 
   useEffect(() => {
@@ -39,30 +67,27 @@ export default function SubscriptionsPage() {
   }, []);
 
   const handleToggleAutoRenew = (username: string) => {
-    const isNewStateRenew = mockDb.toggleSubscriptionRenew(username);
-    fetchData();
-    showToast(`Auto-renew has been turned ${isNewStateRenew ? "ON" : "OFF"} for @${username}`);
+    showToast(`Auto-renew API is not connected yet for @${username}`);
   };
 
-  const handleCancelSub = (username: string) => {
+  const handleCancelSub = async (username: string) => {
     if (confirm(`Are you sure you want to cancel your subscription to @${username}?`)) {
-      unsubscribeFromCreator(username);
-      fetchData();
-      showToast(`Cancelled subscription to @${username}`);
+      const ok = await unsubscribeFromCreator(username);
+      if (ok) await fetchData();
     }
   };
 
-  const handleReSubscribe = (username: string, price: number) => {
-    subscribeToCreator(username, price);
-    fetchData();
-    showToast(`Re-subscribed to @${username}!`);
+  const handleReSubscribe = async (username: string, price: number) => {
+    const ok = await subscribeToCreator(username, price);
+    if (ok) await fetchData();
   };
 
   const activeSubs = subDetails.filter(s => s.status === "active");
   const expiredSubs = subDetails.filter(s => s.status === "expired");
 
   return (
-    <AppShell>
+    <RoleGuard allowedRoles={["fan"]}>
+      <AppShell>
       {/* Mobile Top Header */}
       <MobileHeader>
         <span className="text-sm font-bold text-text-muted select-none">Subscriptions</span>
@@ -140,7 +165,7 @@ export default function SubscriptionsPage() {
                           <VerifiedBadge size="xs" />
                         </div>
                         <p className="text-[10px] text-text-muted font-bold">@{sub.username}</p>
-                        <p className="text-[11px] font-bold text-primary mt-1">${sub.price}/mo • Renews: {sub.expiryDate}</p>
+                        <p className="text-[11px] font-bold text-primary mt-1">₹{sub.price}/mo • Renews: {sub.expiryDate}</p>
                       </div>
                     </div>
 
@@ -228,7 +253,7 @@ export default function SubscriptionsPage() {
                           <VerifiedBadge size="xs" />
                         </div>
                         <p className="text-[10px] text-text-muted font-bold">@{sub.username}</p>
-                        <p className="text-[11px] font-bold text-text-muted mt-1">Expired: {sub.expiryDate} • Base rate: ${sub.price}/mo</p>
+                        <p className="text-[11px] font-bold text-text-muted mt-1">Expired: {sub.expiryDate} • Base rate: ₹{sub.price}/mo</p>
                       </div>
                     </div>
 
@@ -272,7 +297,7 @@ export default function SubscriptionsPage() {
                         onClick={() => handleReSubscribe(creator.username, creator.subPrice)}
                         className="bg-primary text-white hover:opacity-95 active:scale-95 text-xs font-black px-4 py-2 rounded-full transition-all cursor-pointer uppercase tracking-wider"
                       >
-                        Subscribe ${creator.subPrice}/mo
+                        Subscribe ₹{creator.subPrice}/mo
                       </button>
                     </div>
                     <div className="px-4 pb-4 space-y-1">
@@ -295,6 +320,7 @@ export default function SubscriptionsPage() {
 
         </div>
       </div>
-    </AppShell>
+      </AppShell>
+    </RoleGuard>
   );
 }

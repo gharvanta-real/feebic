@@ -1,32 +1,50 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { mockDb, Story, StorySlide } from "@/lib/mockDb";
+import React, { useCallback, useEffect, useState } from "react";
+import type { Story } from "@/lib/mockDb";
 import { useUser } from "@/context/UserContext";
 import { VerifiedBadge } from "@/components/ui/VerifiedBadge";
+import { apiClient } from "@/lib/apiClient";
+
 
 export const StorySlider: React.FC = () => {
-  const { user, refreshUserProfile, showToast } = useUser();
+  const { user, showToast } = useUser();
   const [stories, setStories] = useState<Story[]>([]);
+  const [storiesError, setStoriesError] = useState<string | null>(null);
   const [activeStory, setActiveStory] = useState<Story | null>(null);
   const [activeSlideIdx, setActiveSlideIdx] = useState(0);
   const [storyTimer, setStoryTimer] = useState<NodeJS.Timeout | null>(null);
 
-  const fetchStories = () => {
-    setStories(mockDb.getStories());
-  };
-
-  useEffect(() => {
-    setTimeout(() => {
-      fetchStories();
-    }, 0);
-    
-    // Listen to background story update triggers
-    window.addEventListener("ch_stories_updated", fetchStories);
-    return () => window.removeEventListener("ch_stories_updated", fetchStories);
+  const fetchStories = useCallback(async () => {
+    try {
+      const data = await apiClient.get<Story[]>("/stories");
+      setStoriesError(null);
+      setStories(data);
+    } catch (err) {
+      setStories([]);
+      setStoriesError(err instanceof Error ? err.message : "Unable to load stories from the API.");
+    }
   }, []);
 
-  const handleAddStory = () => {
+
+  useEffect(() => {
+    if (user) {
+      setTimeout(() => {
+        fetchStories();
+      }, 0);
+    }
+    
+    // Listen to background story update triggers
+    const handleStoriesUpdate = () => {
+      if (user) {
+        fetchStories();
+      }
+    };
+    window.addEventListener("ch_stories_updated", handleStoriesUpdate);
+    return () => window.removeEventListener("ch_stories_updated", handleStoriesUpdate);
+  }, [user, fetchStories]);
+
+  const handleAddStory = async () => {
     if (!user) return;
     const premiumAssets = [
       "/assets/1b01065d7e887ce3d8b379aabd6221a2.png",
@@ -37,25 +55,27 @@ export const StorySlider: React.FC = () => {
     ];
     const randomAsset = premiumAssets[Math.floor(Math.random() * premiumAssets.length)];
     
-    // Add story via mockDb
-    mockDb.addStory(
-      user.username,
-      "Your story",
-      user.avatar,
-      randomAsset,
-      "India"
-    );
-    showToast("Story added successfully!");
-    fetchStories();
+    try {
+      await apiClient.post("/stories", {
+        story_url: randomAsset,
+        location: "India"
+      });
+      showToast("Story added successfully to backend!");
+      await fetchStories();
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : "Failed to publish story to backend");
+    }
   };
 
+
   const handleOpenStory = (story: Story) => {
-    mockDb.markStoryRead(story.username);
-    refreshUserProfile();
-    fetchStories();
+    setStories(prev => prev.map(s => s.username === story.username ? { ...s, isUnread: false } : s));
     
     setActiveStory(story);
     setActiveSlideIdx(0);
+    if (story.items?.[0]) {
+      apiClient.post(`/stories/${story.items[0].id}/view`).catch(() => {});
+    }
     startTimer(0, story);
   };
 
@@ -78,8 +98,10 @@ export const StorySlider: React.FC = () => {
     if (!story.items) return;
     
     if (currentIdx + 1 < story.items.length) {
-      setActiveSlideIdx(currentIdx + 1);
-      startTimer(currentIdx + 1, story);
+      const nextIdx = currentIdx + 1;
+      setActiveSlideIdx(nextIdx);
+      apiClient.post(`/stories/${story.items[nextIdx].id}/view`).catch(() => {});
+      startTimer(nextIdx, story);
     } else {
       // Find the next unread story or close
       const storyIdx = stories.findIndex((s) => s.username === story.username);
@@ -96,8 +118,10 @@ export const StorySlider: React.FC = () => {
     if (!story.items) return;
     
     if (currentIdx - 1 >= 0) {
-      setActiveSlideIdx(currentIdx - 1);
-      startTimer(currentIdx - 1, story);
+      const prevIdx = currentIdx - 1;
+      setActiveSlideIdx(prevIdx);
+      apiClient.post(`/stories/${story.items[prevIdx].id}/view`).catch(() => {});
+      startTimer(prevIdx, story);
     } else {
       // Find the previous story or close
       const storyIdx = stories.findIndex((s) => s.username === story.username);
@@ -163,6 +187,12 @@ export const StorySlider: React.FC = () => {
             </button>
           );
         })}
+
+        {storiesError && (
+          <div className="flex min-w-[220px] items-center rounded-2xl border border-red-500/20 bg-red-500/10 px-4 text-xs font-bold text-red-400">
+            Stories API unavailable
+          </div>
+        )}
       </div>
 
 

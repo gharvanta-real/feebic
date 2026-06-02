@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { MobileHeader } from "@/components/layout/MobileHeader";
-import { mockDb, Creator, ChatMessage, VaultItem } from "@/lib/mockDb";
+import { Creator, ChatMessage, VaultItem, mockDb } from "@/lib/mockDb";
 import { useUser } from "@/context/UserContext";
+import { apiClient } from "@/lib/apiClient";
 import { PaymentModal } from "@/components/ui/PaymentModal";
 import { Modal } from "@/components/ui/Modal";
 import { VerifiedBadge } from "@/components/ui/VerifiedBadge";
@@ -62,35 +63,81 @@ const playRingTone = () => {
 };
 
 interface VoicePlayerProps {
-  duration?: string;
+  src: string;
   isUser: boolean;
 }
 
-const VoicePlayer: React.FC<VoicePlayerProps> = ({ duration = "0:12", isUser }) => {
+const VoicePlayer: React.FC<VoicePlayerProps> = ({ src, isUser }) => {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [durationStr, setDurationStr] = useState("0:00");
+  const [currentTimeStr, setCurrentTimeStr] = useState("0:00");
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (playing) {
-      timer = setInterval(() => {
-        setProgress((prev) => {
-          if (prev >= 100) {
-            setPlaying(false);
-            return 0;
-          }
-          return prev + 8;
-        });
-      }, 300);
+    const audio = new Audio(src);
+    audioRef.current = audio;
+
+    const handlePlay = () => setPlaying(true);
+    const handlePause = () => setPlaying(false);
+    const handleEnded = () => {
+      setPlaying(false);
+      setProgress(0);
+      setCurrentTimeStr("0:00");
+    };
+    const handleTimeUpdate = () => {
+      if (audio.duration) {
+        setProgress((audio.currentTime / audio.duration) * 100);
+        const curM = Math.floor(audio.currentTime / 60);
+        const curS = Math.floor(audio.currentTime % 60);
+        setCurrentTimeStr(`${curM}:${curS.toString().padStart(2, "0")}`);
+      }
+    };
+    const handleLoadedMetadata = () => {
+      if (audio.duration && isFinite(audio.duration)) {
+        const durM = Math.floor(audio.duration / 60);
+        const durS = Math.floor(audio.duration % 60);
+        setDurationStr(`${durM}:${durS.toString().padStart(2, "0")}`);
+      }
+    };
+
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("ended", handleEnded);
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
+
+    if (audio.readyState >= 1) {
+      handleLoadedMetadata();
     }
-    return () => clearInterval(timer);
-  }, [playing]);
+
+    return () => {
+      audio.pause();
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("timeupdate", handleTimeUpdate);
+      audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      audioRef.current = null;
+    };
+  }, [src]);
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (playing) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play().catch((err) => {
+        console.error("Audio playback failed", err);
+      });
+    }
+  };
 
   return (
     <div className="flex items-center gap-3 py-1.5 min-w-[210px] select-none">
       <button
         type="button"
-        onClick={() => setPlaying(!playing)}
+        onClick={togglePlay}
         className={`h-8 w-8 rounded-full flex items-center justify-center cursor-pointer transition-all hover:scale-105 active:scale-95 ${
           isUser ? "bg-white text-primary" : "bg-primary text-white"
         }`}
@@ -112,22 +159,22 @@ const VoicePlayer: React.FC<VoicePlayerProps> = ({ duration = "0:12", isUser }) 
                 height: `${height}%`,
                 backgroundColor: active
                   ? (isUser ? "white" : "var(--primary)")
-                  : (isUser ? "rgba(255,255,255,0.4)" : "rgba(var(--text-muted-hsl) / 0.25)")
+                  : (isUser ? "rgba(255,255,255,0.4)" : "hsl(var(--text-muted-hsl) / 0.25)")
               }}
             />
           );
         })}
       </div>
 
-      <span className={`text-[10px] font-mono font-bold shrink-0 ${isUser ? "text-white/90" : "text-text-muted"}`}>
-        {playing ? `0:${Math.min(12, Math.floor((progress / 100) * 12)).toString().padStart(2, '0')}` : duration}
+      <span className={`text-[10px] font-mono font-bold shrink-0 w-10 text-right ${isUser ? "text-white/90" : "text-text-muted"}`}>
+        {playing ? currentTimeStr : durationStr}
       </span>
     </div>
   );
 };
 
 function ChatContent() {
-  const { blockedUsers, toggleBlock, showToast, user, adjustBalance } = useUser();
+  const { blockedUsers, toggleBlock, showToast, user, adjustBalance, walletBalance, subscriptions, refreshUserProfile } = useUser();
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryUser = searchParams.get("u");
@@ -149,9 +196,17 @@ function ChatContent() {
   const callStartTimeRef = useRef<number | null>(null);
   const lastChargedMinuteRef = useRef<number>(0);
 
-  const [creators, setCreators] = useState<Creator[]>([]);
+  // WebRTC & Simulated Media refs
+  const peerConnectionRef1 = useRef<RTCPeerConnection | null>(null);
+  const peerConnectionRef2 = useRef<RTCPeerConnection | null>(null);
+  const canvasAnimFrameRef = useRef<number | null>(null);
+  const partnerAudioCtxRef = useRef<AudioContext | null>(null);
+  const partnerStreamRef = useRef<MediaStream | null>(null);
+
+  const [creators, setCreators] = useState<any[]>([]);
   const [selectedCreator, setSelectedCreator] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [currentCreator, setCurrentCreator] = useState<any | null>(null);
   const [inputText, setInputText] = useState("");
   
   // Custom message attachments
@@ -165,6 +220,11 @@ function ChatContent() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordTime, setRecordTime] = useState(0);
   const recordIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // MediaRecorder refs
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const voiceStreamRef = useRef<MediaStream | null>(null);
 
   // Vault picking
   const [isVaultOpen, setIsVaultOpen] = useState(false);
@@ -178,50 +238,56 @@ function ChatContent() {
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  const startOutgoingCall = (type: "video" | "audio") => {
-    if (!selectedCreator || !activeCreatorDetails) return;
-    
-    if (user?.role === "fan" && !mockDb.isSubscribed(selectedCreator)) {
-      showToast("You must be subscribed to call this creator!");
-      return;
+  const endCall = () => {
+    if (ringToneCleanupRef.current) {
+      ringToneCleanupRef.current();
+      ringToneCleanupRef.current = null;
+    }
+    if (billingIntervalRef.current) {
+      clearInterval(billingIntervalRef.current);
+      billingIntervalRef.current = null;
+    }
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
+    }
+    if (peerConnectionRef1.current) {
+      peerConnectionRef1.current.close();
+      peerConnectionRef1.current = null;
+    }
+    if (peerConnectionRef2.current) {
+      peerConnectionRef2.current.close();
+      peerConnectionRef2.current = null;
+    }
+    if (canvasAnimFrameRef.current !== null) {
+      cancelAnimationFrame(canvasAnimFrameRef.current);
+      canvasAnimFrameRef.current = null;
+    }
+    if (partnerAudioCtxRef.current) {
+      try {
+        partnerAudioCtxRef.current.close();
+      } catch (e) {}
+      partnerAudioCtxRef.current = null;
+    }
+    if (partnerStreamRef.current) {
+      partnerStreamRef.current.getTracks().forEach(track => track.stop());
+      partnerStreamRef.current = null;
     }
 
-    setCallType(type);
-    setCallState("calling");
-    setIsMuted(false);
-    setIsCamOff(false);
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = null;
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
+    }
 
-    // Play synthesized dial tone
-    if (ringToneCleanupRef.current) ringToneCleanupRef.current();
-    ringToneCleanupRef.current = playRingTone();
-
-    // Creator auto-accept simulation after 3.5 seconds
-    setTimeout(() => {
-      setCallState(prev => {
-        if (prev === "calling") {
-          connectCall(type);
-          return "active";
-        }
-        return prev;
-      });
-    }, 3500);
-  };
-
-  const simulateIncomingCall = (type: "video" | "audio" = "video") => {
-    if (!selectedCreator || !activeCreatorDetails) return;
-    setCallType(type);
-    setCallState("ringing");
-    setIsMuted(false);
-    setIsCamOff(false);
-
-    // Play ringing tone
-    if (ringToneCleanupRef.current) ringToneCleanupRef.current();
-    ringToneCleanupRef.current = playRingTone();
-  };
-
-  const acceptIncomingCall = () => {
-    setCallState("active");
-    connectCall(callType);
+    setCallState("idle");
+    setCallDuration(0);
+    callStartTimeRef.current = null;
+    lastChargedMinuteRef.current = 0;
+    
+    router.replace(`/chat?u=${selectedCreator}`);
+    showToast("Call session ended.");
   };
 
   const connectCall = (type: "video" | "audio") => {
@@ -231,15 +297,120 @@ function ChatContent() {
     }
 
     navigator.mediaDevices.getUserMedia({ video: type === "video", audio: true })
+      .catch((err) => {
+        console.warn("Camera/Mic stream access rejected:", err);
+        showToast("Webcam/Mic not accessible. Continuing in simulation mode.");
+        
+        const fallbackCanvas = document.createElement("canvas");
+        fallbackCanvas.width = 640;
+        fallbackCanvas.height = 480;
+        const fallbackCtx = fallbackCanvas.getContext("2d");
+        if (fallbackCtx) {
+          fallbackCtx.fillStyle = "#111827";
+          fallbackCtx.fillRect(0, 0, 640, 480);
+          fallbackCtx.fillStyle = "#ffffff";
+          fallbackCtx.font = "20px sans-serif";
+          fallbackCtx.fillText("Camera Blocked", 240, 240);
+        }
+        return fallbackCanvas.captureStream(30);
+      })
       .then((stream) => {
         localStreamRef.current = stream;
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
-      })
-      .catch((err) => {
-        console.warn("Camera/Mic stream access rejected:", err);
-        showToast("Webcam/Mic not accessible. Continuing in simulation mode.");
+
+        const pc1 = new RTCPeerConnection();
+        const pc2 = new RTCPeerConnection();
+        peerConnectionRef1.current = pc1;
+        peerConnectionRef2.current = pc2;
+
+        stream.getTracks().forEach(track => pc1.addTrack(track, stream));
+
+        const canvas = document.createElement("canvas");
+        canvas.width = 640;
+        canvas.height = 480;
+        const canvasCtx = canvas.getContext("2d");
+        
+        const draw = () => {
+          if (!canvasCtx) return;
+          const gradient = canvasCtx.createRadialGradient(320, 240, 50, 320, 240, 350);
+          gradient.addColorStop(0, "#1f2937");
+          gradient.addColorStop(1, "#111827");
+          canvasCtx.fillStyle = gradient;
+          canvasCtx.fillRect(0, 0, 640, 480);
+          
+          const time = Date.now() * 0.003;
+          canvasCtx.strokeStyle = "rgba(124, 58, 237, 0.4)";
+          canvasCtx.lineWidth = 4;
+          for (let i = 0; i < 3; i++) {
+            const radius = ((time + i * 1.5) % 4.5) * 60;
+            canvasCtx.beginPath();
+            canvasCtx.arc(320, 240, radius, 0, Math.PI * 2);
+            canvasCtx.stroke();
+          }
+
+          canvasCtx.fillStyle = "#7c3aed";
+          canvasCtx.beginPath();
+          canvasCtx.arc(320, 240, 60, 0, Math.PI * 2);
+          canvasCtx.fill();
+
+          canvasCtx.fillStyle = "#ffffff";
+          canvasCtx.font = "bold 32px sans-serif";
+          canvasCtx.textAlign = "center";
+          canvasCtx.textBaseline = "middle";
+          const partnerName = user?.role === "creator" ? "Sam Fan" : (activeCreatorDetails?.name || "Partner");
+          const initials = partnerName.split(" ").map((n: string) => n[0]).join("").toUpperCase();
+          canvasCtx.fillText(initials, 320, 240);
+
+          canvasAnimFrameRef.current = requestAnimationFrame(draw);
+        };
+        draw();
+
+        const canvasStream = canvas.captureStream(30);
+        const partnerStream = new MediaStream();
+        canvasStream.getVideoTracks().forEach(track => partnerStream.addTrack(track));
+
+        try {
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          if (AudioContextClass) {
+            const partnerAudioCtx = new AudioContextClass();
+            partnerAudioCtxRef.current = partnerAudioCtx;
+            const osc = partnerAudioCtx.createOscillator();
+            const dest = partnerAudioCtx.createMediaStreamDestination();
+            osc.connect(dest);
+            osc.start();
+            dest.stream.getAudioTracks().forEach(track => partnerStream.addTrack(track));
+          }
+        } catch (e) {
+          console.error("Failed to generate simulated partner audio track", e);
+        }
+
+        partnerStreamRef.current = partnerStream;
+        partnerStream.getTracks().forEach(track => pc2.addTrack(track, partnerStream));
+
+        pc1.onicecandidate = (e) => {
+          if (e.candidate) pc2.addIceCandidate(e.candidate).catch(console.error);
+        };
+        pc2.onicecandidate = (e) => {
+          if (e.candidate) pc1.addIceCandidate(e.candidate).catch(console.error);
+        };
+
+        const remoteStream = new MediaStream();
+        pc1.ontrack = (e) => {
+          remoteStream.addTrack(e.track);
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = remoteStream;
+          }
+        };
+
+        pc1.createOffer()
+          .then(offer => pc1.setLocalDescription(offer))
+          .then(() => pc2.setRemoteDescription(pc1.localDescription!))
+          .then(() => pc2.createAnswer())
+          .then(answer => pc2.setLocalDescription(answer))
+          .then(() => pc1.setRemoteDescription(pc2.localDescription!))
+          .catch(err => console.error("WebRTC negotiation failed:", err));
       });
 
     callStartTimeRef.current = Date.now();
@@ -255,29 +426,69 @@ function ChatContent() {
       
       const elapsedMinutes = Math.floor(elapsedSeconds / 60);
       
-      // Charging billing delta check
       if (elapsedMinutes > lastChargedMinuteRef.current) {
         const creatorPrice = activeCreatorDetails?.callPricePerMin || 5.00;
         const minutesToCharge = elapsedMinutes - lastChargedMinuteRef.current;
         const amount = creatorPrice * minutesToCharge;
 
         if (user?.role === "fan") {
-          const currentBalance = mockDb.getWalletBalance();
+          const currentBalance = walletBalance;
           if (currentBalance < amount) {
             showToast("Call disconnected due to insufficient wallet funds!");
             endCall();
           } else {
             adjustBalance(-amount, `1-on-1 direct call with @${selectedCreator}`, selectedCreator || undefined);
-            showToast(`Charged $${amount.toFixed(2)} for ${elapsedMinutes} minute call session.`);
+            showToast(`Charged ₹${amount.toFixed(2)} for ${elapsedMinutes} minute call session.`);
             lastChargedMinuteRef.current = elapsedMinutes;
           }
         } else if (user?.role === "creator") {
           adjustBalance(amount, `1-on-1 call payout from Fan subscriber`, 'sam_fan');
-          showToast(`Earned $${amount.toFixed(2)} payout from fan video call.`);
+          showToast(`Earned ₹${amount.toFixed(2)} payout from fan video call.`);
           lastChargedMinuteRef.current = elapsedMinutes;
         }
       }
     }, 1000);
+  };
+
+  const startOutgoingCall = (type: "video" | "audio") => {
+    if (!selectedCreator || !activeCreatorDetails) return;
+    
+    if (user?.role === "fan" && !subscriptions.includes(selectedCreator)) {
+      showToast("You must be subscribed to call this creator!");
+      return;
+    }
+
+    setCallType(type);
+    setCallState("calling");
+    setIsMuted(false);
+    setIsCamOff(false);
+
+    if (ringToneCleanupRef.current) ringToneCleanupRef.current();
+    ringToneCleanupRef.current = playRingTone();
+
+    setTimeout(() => {
+      setCallState(prev => {
+        if (prev === "calling") {
+          return "active";
+        }
+        return prev;
+      });
+    }, 3500);
+  };
+
+  const simulateIncomingCall = (type: "video" | "audio" = "video") => {
+    if (!selectedCreator || !activeCreatorDetails) return;
+    setCallType(type);
+    setCallState("ringing");
+    setIsMuted(false);
+    setIsCamOff(false);
+
+    if (ringToneCleanupRef.current) ringToneCleanupRef.current();
+    ringToneCleanupRef.current = playRingTone();
+  };
+
+  const acceptIncomingCall = () => {
+    setCallState("active");
   };
 
   const toggleMic = () => {
@@ -300,27 +511,11 @@ function ChatContent() {
     }
   };
 
-  const endCall = () => {
-    if (ringToneCleanupRef.current) {
-      ringToneCleanupRef.current();
-      ringToneCleanupRef.current = null;
+  useEffect(() => {
+    if (callState === "active" && !callStartTimeRef.current) {
+      connectCall(callType);
     }
-    if (billingIntervalRef.current) {
-      clearInterval(billingIntervalRef.current);
-      billingIntervalRef.current = null;
-    }
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => track.stop());
-      localStreamRef.current = null;
-    }
-    setCallState("idle");
-    setCallDuration(0);
-    callStartTimeRef.current = null;
-    lastChargedMinuteRef.current = 0;
-    
-    router.replace(`/chat?u=${selectedCreator}`);
-    showToast("Call session ended.");
-  };
+  }, [callState, callType]);
 
   useEffect(() => {
     if (queryUser) {
@@ -344,13 +539,102 @@ function ChatContent() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const fetchChats = () => {
-    const data = mockDb.getCreators();
-    const list = Object.values(data);
-    setCreators(list);
+  const loadChatHistory = async (username: string) => {
+    try {
+      const data = await apiClient.get<ChatMessage[]>(`/chat/messages/${username}`);
+      setMessages(data);
+      scrollToBottom();
+    } catch (err) {
+      setMessages([]);
+      showToast(err instanceof Error ? err.message : "Failed to load message history");
+    }
+  };
 
-    if (selectedCreator) {
-      setMessages(mockDb.getChats(selectedCreator));
+  const loadContactProfile = async (username: string) => {
+    try {
+      const profile = await apiClient.get<any>(`/users/creator/${username}`);
+      setCurrentCreator({
+        name: profile.display_name,
+        username: profile.username,
+        avatar: profile.avatar || "/assets/be708ecefc41b969ee64c477f954168c.png",
+        verified: true,
+        callsEnabled: true,
+        callPricePerMin: 5.00,
+        subPrice: profile.sub_price
+      });
+    } catch (err) {
+      // Fallback for fans
+      const inConversations = creators.find(c => c.username === username);
+      if (inConversations) {
+        setCurrentCreator({
+          name: inConversations.name,
+          username: inConversations.username,
+          avatar: inConversations.avatar,
+          verified: false,
+          callsEnabled: false,
+          callPricePerMin: 0.00
+        });
+      } else {
+        setCurrentCreator({
+          name: username,
+          username: username,
+          avatar: "/assets/39bc5c3eed51d62c1022c60686bb459a.png",
+          verified: false,
+          callsEnabled: false,
+          callPricePerMin: 0.00
+        });
+      }
+    }
+  };
+
+  const fetchChats = async () => {
+    try {
+      const data = await apiClient.get<any[]>("/chat/conversations");
+      const list = data.map((c) => ({
+        id: c.id,
+        username: c.username,
+        name: c.name,
+        avatar: c.avatar || "/assets/39bc5c3eed51d62c1022c60686bb459a.png",
+        role: c.role,
+        last_message: c.last_message,
+        last_msg_time: c.last_msg_time,
+        verified: c.role === "creator",
+        callsEnabled: c.role === "creator",
+        callPricePerMin: 5.00
+      }));
+      setCreators(list);
+
+      // Default select the first thread if none is selected
+      if (list.length > 0 && !selectedCreator) {
+        setSelectedCreator(list[0].username);
+      }
+    } catch (err) {
+      setCreators([]);
+      showToast(err instanceof Error ? err.message : "Failed to load conversations");
+    }
+  };
+
+  const fetchVaultItems = async () => {
+    if (user?.role !== "creator") {
+      setVaultItems([]);
+      return;
+    }
+
+    try {
+      const data = await apiClient.get<any[]>("/vault");
+      const mapped = data.map((item) => ({
+        id: item.id,
+        name: item.name,
+        url: item.url,
+        type: item.type,
+        size: item.size,
+        usageCount: item.usage_count || 0,
+        date: item.date
+      }));
+      setVaultItems(mapped);
+    } catch (err) {
+      setVaultItems([]);
+      showToast(err instanceof Error ? err.message : "Failed to load vault items");
     }
   };
 
@@ -363,33 +647,28 @@ function ChatContent() {
   useEffect(() => {
     setTimeout(() => {
       fetchChats();
-      setVaultItems(mockDb.getVaultItems());
+      if (user?.role === "creator") {
+        fetchVaultItems();
+      } else {
+        setVaultItems([]);
+      }
     }, 0);
-
-    // Set default selected creator if list has items
-    const data = mockDb.getCreators();
-    const list = Object.values(data);
-    if (list.length > 0 && !selectedCreator) {
-      setTimeout(() => {
-        setSelectedCreator(list[0].username);
-      }, 0);
-    }
-  }, []);
+  }, [user?.role]);
 
   useEffect(() => {
     if (selectedCreator) {
-      setTimeout(() => {
-        setMessages(mockDb.getChats(selectedCreator));
-        scrollToBottom();
-      }, 0);
+      loadChatHistory(selectedCreator);
+      loadContactProfile(selectedCreator);
+    } else {
+      setCurrentCreator(null);
+      setMessages([]);
     }
-  }, [selectedCreator]);
+  }, [selectedCreator, creators]);
 
   useEffect(() => {
     const handleMsgSent = () => {
       if (selectedCreator) {
-        setMessages(mockDb.getChats(selectedCreator));
-        scrollToBottom();
+        loadChatHistory(selectedCreator);
       }
     };
     
@@ -408,74 +687,154 @@ function ChatContent() {
       if (ringToneCleanupRef.current) {
         ringToneCleanupRef.current();
       }
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (voiceStreamRef.current) {
+        voiceStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (peerConnectionRef1.current) {
+        peerConnectionRef1.current.close();
+      }
+      if (peerConnectionRef2.current) {
+        peerConnectionRef2.current.close();
+      }
+      if (canvasAnimFrameRef.current !== null) {
+        cancelAnimationFrame(canvasAnimFrameRef.current);
+      }
+      if (partnerAudioCtxRef.current) {
+        try {
+          partnerAudioCtxRef.current.close();
+        } catch (e) {}
+      }
+      if (partnerStreamRef.current) {
+        partnerStreamRef.current.getTracks().forEach(track => track.stop());
+      }
     };
   }, [selectedCreator]);
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() && !mediaUrl) return;
     if (!selectedCreator) return;
 
     const priceNum = isPPV ? parseFloat(price) || 9.99 : 0;
 
-    mockDb.sendMessage(
-      selectedCreator, 
-      inputText.trim(),
-      isPPV,
-      priceNum,
-      mediaUrl,
-      mediaType
-    );
+    try {
+      await apiClient.post("/chat/messages", {
+        receiver_username: selectedCreator,
+        message: inputText.trim(),
+        media_url: mediaUrl,
+        media_type: mediaType,
+        is_ppv: isPPV,
+        price: priceNum
+      });
 
-    // Reset composer state
-    setInputText("");
-    setIsPPV(false);
-    setMediaUrl("");
-    setFileName("");
-    scrollToBottom();
+      // Reset composer state
+      setInputText("");
+      setIsPPV(false);
+      setMediaUrl("");
+      setFileName("");
+      
+      await loadChatHistory(selectedCreator);
+      await fetchChats();
+    } catch (err: any) {
+      showToast(err.message || "Failed to send message");
+    }
   };
 
-  const startRecording = () => {
-    setIsRecording(true);
-    setRecordTime(0);
-    recordIntervalRef.current = setInterval(() => {
-      setRecordTime((prev) => prev + 1);
-    }, 1000);
-    showToast("Voice recording started...");
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      voiceStreamRef.current = stream;
+      
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(track => track.stop());
+        
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+          const base64Audio = reader.result as string;
+          
+          if (!selectedCreator) return;
+          try {
+            await apiClient.post("/chat/messages", {
+              receiver_username: selectedCreator,
+              message: "",
+              media_url: base64Audio,
+              media_type: "audio",
+              is_ppv: false,
+              price: 0
+            });
+            await loadChatHistory(selectedCreator);
+            await fetchChats();
+            showToast("Voice note sent successfully!");
+          } catch (err: any) {
+            showToast(err.message || "Failed to send voice note");
+          }
+        };
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordTime(0);
+      
+      if (recordIntervalRef.current) clearInterval(recordIntervalRef.current);
+      recordIntervalRef.current = setInterval(() => {
+        setRecordTime((prev) => prev + 1);
+      }, 1000);
+      showToast("Voice recording started...");
+    } catch (err) {
+      console.error("Failed to start voice recording", err);
+      showToast("Could not access microphone for voice recording.");
+    }
   };
 
   const cancelRecording = () => {
     setIsRecording(false);
     if (recordIntervalRef.current) {
       clearInterval(recordIntervalRef.current);
+      recordIntervalRef.current = null;
     }
     setRecordTime(0);
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.onstop = () => {
+        if (voiceStreamRef.current) {
+          voiceStreamRef.current.getTracks().forEach(track => track.stop());
+          voiceStreamRef.current = null;
+        }
+      };
+      mediaRecorderRef.current.stop();
+    } else if (voiceStreamRef.current) {
+      voiceStreamRef.current.getTracks().forEach(track => track.stop());
+      voiceStreamRef.current = null;
+    }
+    
     showToast("Recording cancelled");
   };
 
   const sendVoiceNote = () => {
-    if (!selectedCreator) return;
-    const durationMin = Math.floor(recordTime / 60);
-    const durationSec = recordTime % 60;
-    const durationStr = `${durationMin}:${durationSec.toString().padStart(2, '0')}`;
-
-    mockDb.sendMessage(
-      selectedCreator,
-      "",
-      false,
-      0,
-      "/assets/voice_note.mp3",
-      "audio",
-      durationStr
-    );
-
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
     setIsRecording(false);
     if (recordIntervalRef.current) {
       clearInterval(recordIntervalRef.current);
+      recordIntervalRef.current = null;
     }
     setRecordTime(0);
-    scrollToBottom();
-    showToast("Voice note sent successfully!");
   };
 
   const triggerTip = () => {
@@ -492,22 +851,48 @@ function ChatContent() {
     setIsPaymentOpen(true);
   };
 
-  const handlePaymentConfirm = (tipMsg?: string) => {
-    if (activePPVMsgId) {
-      mockDb.unlockContent(activePPVMsgId, paymentPrice);
-      setActivePPVMsgId(null);
-      showToast("Premium attachment unlocked successfully!");
-    } else if (selectedCreator) {
-      const msg = tipMsg || "Tipped the creator!";
-      mockDb.sendMessage(selectedCreator, `[Tip Contribution $${paymentPrice.toFixed(2)}] ${msg}`);
-      showToast(`Tip of $${paymentPrice.toFixed(2)} sent!`);
+  const handlePaymentConfirm = async (tipMsg?: string, paymentSource: "wallet" | "card" = "wallet") => {
+    if (!selectedCreator) return;
+
+    if (paymentSource === "card") {
+      try {
+        await apiClient.post("/wallet/deposit", { amount: paymentPrice });
+      } catch (err: any) {
+        showToast(err.message || "Card deposit failed");
+        return;
+      }
     }
-    fetchChats();
+
+    try {
+      if (activePPVMsgId) {
+        await apiClient.post("/wallet/tip", {
+          creator_id: selectedCreator,
+          amount: paymentPrice,
+          message: `Unlock Message ${activePPVMsgId}`
+        });
+        setActivePPVMsgId(null);
+        showToast("Premium attachment unlocked successfully!");
+      } else {
+        const msg = tipMsg || "Tipped the creator!";
+        await apiClient.post("/wallet/tip", {
+          creator_id: selectedCreator,
+          amount: paymentPrice,
+          message: msg
+        });
+        showToast(`Tip of ₹${paymentPrice.toFixed(2)} sent!`);
+      }
+
+      refreshUserProfile();
+      await loadChatHistory(selectedCreator);
+      await fetchChats();
+    } catch (err: any) {
+      showToast(err.message || "Payment transaction failed");
+    }
   };
 
-  const handleToggleBlock = () => {
+  const handleToggleBlock = async () => {
     if (!selectedCreator) return;
-    const res = toggleBlock(selectedCreator);
+    const res = await toggleBlock(selectedCreator);
     showToast(res ? `@${selectedCreator} has been blocked` : `@${selectedCreator} has been unblocked`);
   };
 
@@ -519,7 +904,6 @@ function ChatContent() {
     showToast(`Attached ${item.name} from Vault`);
   };
 
-  const currentCreator = selectedCreator ? mockDb.getCreator(selectedCreator) : null;
   const isBlocked = selectedCreator ? blockedUsers.includes(selectedCreator) : false;
 
   const filteredConversations = creators.filter((c) => 
@@ -574,7 +958,6 @@ function ChatContent() {
             ) : (
               filteredConversations.map((c) => {
                 const active = selectedCreator === c.username;
-                const lastMsg = mockDb.getChats(c.username).slice(-1)[0];
                 const blocked = blockedUsers.includes(c.username);
                 
                 return (
@@ -611,7 +994,7 @@ function ChatContent() {
                         )}
                       </div>
                       <p className="text-[11px] text-text-muted truncate select-none">
-                        {lastMsg ? lastMsg.text : `Chat with @${c.username}...`}
+                        {c.last_message || `Chat with @${c.username}...`}
                       </p>
                     </div>
                   </button>
@@ -730,7 +1113,7 @@ function ChatContent() {
                 ) : (
                   messages.map((msg) => {
                     const isUser = msg.sender === "user";
-                    const isPPVUnlocked = msg.id ? mockDb.isUnlocked(msg.id) : false;
+                    const isPPVUnlocked = msg.isUnlocked;
                     const showPPVLock = msg.isPPV && !isPPVUnlocked;
                     
                     return (
@@ -774,12 +1157,12 @@ function ChatContent() {
                                       className="bg-accent hover:opacity-95 active:scale-95 text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-full transition-all flex items-center gap-1 shadow-md cursor-pointer"
                                     >
                                       <span className="material-symbols-outlined text-[13px] leading-none">lock_open</span>
-                                      <span>Unlock for ${(msg.price || 0).toFixed(2)}</span>
+                                      <span>Unlock for ₹{(msg.price || 0).toFixed(2)}</span>
                                     </button>
                                   </div>
                                 ) : (
                                   msg.mediaType === "audio" ? (
-                                    <VoicePlayer duration={msg.audioDuration} isUser={isUser} />
+                                    <VoicePlayer src={msg.mediaUrl} isUser={isUser} />
                                   ) : (
                                     <img
                                       src={msg.mediaUrl}
@@ -837,9 +1220,9 @@ function ChatContent() {
                     {isPPV && (
                       <div className="flex items-center gap-3 bg-background border border-border p-2.5 rounded-xl animate-fade-in select-none">
                         <div className="flex-grow">
-                          <p className="text-[10px] text-text-muted font-bold uppercase tracking-wider mb-1">Set PPV Unlock Price (USD)</p>
+                          <p className="text-[10px] text-text-muted font-bold uppercase tracking-wider mb-1">Set PPV Unlock Price (INR)</p>
                           <div className="relative flex items-center bg-surface border border-border rounded-lg px-2.5 py-1 focus-within:border-primary">
-                            <span className="text-xs font-bold text-text-muted mr-0.5">$</span>
+                            <span className="text-xs font-bold text-text-muted mr-0.5">₹</span>
                             <input
                               type="number"
                               step="0.01"
@@ -1121,9 +1504,9 @@ function ChatContent() {
             {/* Real-Time Billing status badge overlay */}
             <div className="bg-white/10 border border-white/20 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-wider text-center select-none w-full">
               {user?.role === "fan" ? (
-                <span>Rate: ${activeCreatorDetails?.callPricePerMin || "5.00"}/min • billed from wallet</span>
+                <span>Rate: ₹{activeCreatorDetails?.callPricePerMin || "5.00"}/min • billed from wallet</span>
               ) : (
-                <span>Rate: ${activeCreatorDetails?.callPricePerMin || "5.00"}/min • payouts loading</span>
+                <span>Rate: ₹{activeCreatorDetails?.callPricePerMin || "5.00"}/min • payouts loading</span>
               )}
             </div>
 

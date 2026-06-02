@@ -6,11 +6,62 @@ import { AppShell } from "@/components/layout/AppShell";
 import { RightPanel } from "@/components/layout/RightPanel";
 import { MobileHeader } from "@/components/layout/MobileHeader";
 import { PostCard } from "@/components/features/PostCard";
-import { mockDb, Post } from "@/lib/mockDb";
+import type { Post } from "@/lib/mockDb";
+import { apiClient } from "@/lib/apiClient";
 
 interface PostDetailPageProps {
   params: Promise<{ id: string }>;
 }
+
+type BackendPost = Partial<Post> & {
+  creator_username?: string;
+  creator_name?: string;
+  creator_avatar?: string;
+  media_url?: string;
+  media_urls?: string[];
+  media_type?: string;
+  is_premium?: boolean;
+  comments_count?: number;
+  is_liked?: boolean;
+  is_bookmarked?: boolean;
+  is_unlocked?: boolean;
+  isLiked?: boolean;
+  isBookmarked?: boolean;
+  isUnlocked?: boolean;
+  reposted_from_id?: string | null;
+  reposted_by?: string | null;
+  created_at?: string;
+};
+
+const normalizePost = (post: BackendPost, index: number): Post => {
+  const mediaUrls = post.mediaUrls || post.media_urls || [];
+  const createdAt = post.created_at ? new Date(post.created_at) : null;
+
+  return {
+    id: post.id || `post-fallback-${index}`,
+    creatorUsername: post.creatorUsername || post.creator_username || "",
+    creatorName: post.creatorName || post.creator_name || "Felbic Creator",
+    creatorAvatar: post.creatorAvatar || post.creator_avatar || "/assets/39bc5c3eed51d62c1022c60686bb459a.png",
+    isPinned: post.isPinned || false,
+    mediaUrl: post.mediaUrl || post.media_url || mediaUrls[0] || "",
+    mediaUrls,
+    mediaType: post.mediaType || post.media_type || "image",
+    content: post.content || "",
+    likes: post.likes || 0,
+    commentsCount: post.commentsCount || post.comments_count || 0,
+    time: post.time || (createdAt ? createdAt.toLocaleDateString() : "Just now"),
+    isPremium: post.isPremium || post.is_premium || false,
+    price: post.price || 0,
+    poll: post.poll || null,
+    fundraiser: post.fundraiser || null,
+    publishAt: post.publishAt || null,
+    repostedFromId: post.repostedFromId || post.reposted_from_id || null,
+    repostedBy: post.repostedBy || post.reposted_by || null,
+    isLiked: post.isLiked || post.is_liked || false,
+    isBookmarked: post.isBookmarked || post.is_bookmarked || false,
+    isUnlocked: post.isUnlocked || post.is_unlocked || false,
+  } as Post;
+};
 
 export default function PostDetailPage({ params }: PostDetailPageProps) {
   const router = useRouter();
@@ -19,14 +70,16 @@ export default function PostDetailPage({ params }: PostDetailPageProps) {
   const [post, setPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchPost = () => {
-    const p = mockDb.getPosts(true).find((item) => item.id === postId);
-    if (p) {
-      setPost(p);
-    } else {
+  const fetchPost = async () => {
+    try {
+      const posts = await apiClient.get<BackendPost[]>("/posts");
+      const p = posts.map((post, idx) => normalizePost(post, idx)).find((item) => item.id === postId);
+      setPost(p || null);
+    } catch {
       setPost(null);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {

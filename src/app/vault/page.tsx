@@ -6,16 +6,39 @@ import { MobileHeader } from "@/components/layout/MobileHeader";
 import { useUser } from "@/context/UserContext";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { mockDb, VaultItem } from "@/lib/mockDb";
+import { apiClient } from "@/lib/apiClient";
+
 
 export default function CreatorVaultPage() {
-  const { showToast } = useUser();
+  const { showToast, user } = useUser();
   const [vaultItems, setVaultItems] = useState<VaultItem[]>([]);
   const [activeTab, setActiveTab] = useState<"all" | "image" | "video" | "unused">("all");
   const [isUploading, setIsUploading] = useState(false);
 
-  const fetchVault = () => {
-    setVaultItems(mockDb.getVaultItems());
+  const fetchVault = async () => {
+    if (user?.role !== "creator") {
+      setVaultItems([]);
+      return;
+    }
+
+    try {
+      const data = await apiClient.get<any[]>("/vault");
+      const mapped = data.map((item) => ({
+        id: item.id,
+        name: item.name,
+        url: item.url,
+        type: item.type,
+        size: item.size,
+        usageCount: item.usage_count || 0,
+        date: item.date
+      }));
+      setVaultItems(mapped);
+    } catch (err) {
+      setVaultItems([]);
+      showToast(err instanceof Error ? err.message : "Failed to load vault");
+    }
   };
+
 
   useEffect(() => {
     setTimeout(() => {
@@ -25,27 +48,44 @@ export default function CreatorVaultPage() {
     const handleVaultUpdate = () => fetchVault();
     window.addEventListener("ch_vault_updated", handleVaultUpdate);
     return () => window.removeEventListener("ch_vault_updated", handleVaultUpdate);
-  }, []);
+  }, [user?.role]);
 
-  const handleMockUpload = () => {
+  const handleMockUpload = async () => {
+    if (user?.role !== "creator") {
+      showToast("Only creators can upload to the media vault");
+      return;
+    }
+
     setIsUploading(true);
     showToast("Opening system file explorer...");
 
     const presets = [
-      { name: "Backstage outfit teaser.jpg", url: "/assets/0c0bf4c58678d852ea7588ef1045309e.png", type: "image" },
-      { name: "Promotional loop teaser.mp4", url: "/assets/65c7978e64c060567de19aa63c97dfe7.png", type: "video" },
-      { name: "Exclusive photoset snapshot.jpg", url: "/assets/33835d122eba2ad097de797e914a7b1b.png", type: "image" },
-      { name: "Workout motivation clip.mp4", url: "/assets/efcfd91838f89a7a1dcef9eac6ec0b56.png", type: "video" }
+      { name: "Backstage outfit teaser.jpg", url: "/assets/0c0bf4c58678d852ea7588ef1045309e.png", type: "image", size: "4.2 MB" },
+      { name: "Promotional loop teaser.mp4", url: "/assets/65c7978e64c060567de19aa63c97dfe7.png", type: "video", size: "24.5 MB" },
+      { name: "Exclusive photoset snapshot.jpg", url: "/assets/33835d122eba2ad097de797e914a7b1b.png", type: "image", size: "3.8 MB" },
+      { name: "Workout motivation clip.mp4", url: "/assets/efcfd91838f89a7a1dcef9eac6ec0b56.png", type: "video", size: "18.1 MB" }
     ];
 
     const random = presets[Math.floor(Math.random() * presets.length)];
 
-    setTimeout(() => {
-      setIsUploading(false);
-      mockDb.addVaultItem(random.name, random.url, random.type);
-      showToast(`Uploaded ${random.name} to Vault!`);
-    }, 1500);
+    setTimeout(async () => {
+      try {
+        await apiClient.post("/vault", {
+          name: random.name,
+          url: random.url,
+          type: random.type,
+          size: random.size
+        });
+        setIsUploading(false);
+        showToast(`Uploaded ${random.name} to Vault!`);
+        await fetchVault();
+      } catch (err: any) {
+        setIsUploading(false);
+        showToast(err.message || "Failed to upload to Vault");
+      }
+    }, 1200);
   };
+
 
   const getFilteredItems = () => {
     switch (activeTab) {

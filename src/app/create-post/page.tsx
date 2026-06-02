@@ -6,8 +6,11 @@ import { AppShell } from "@/components/layout/AppShell";
 import { MobileHeader } from "@/components/layout/MobileHeader";
 import { useUser } from "@/context/UserContext";
 import { RoleGuard } from "@/components/layout/RoleGuard";
-import { mockDb, VaultItem } from "@/lib/mockDb";
+import type { VaultItem } from "@/lib/mockDb";
 import { Modal } from "@/components/ui/Modal";
+import { apiClient } from "@/lib/apiClient";
+import { uploadToCloudinary } from "@/lib/cloudinaryClient";
+import { VideoPlayer } from "@/components/features/VideoPlayer";
 
 type DraftPoll = {
   question: string;
@@ -29,7 +32,9 @@ export default function CreatePostPage() {
   const [mediaType, setMediaType] = useState("image");
   const [fileName, setFileName] = useState("");
   const [mediaPreview, setMediaPreview] = useState(""); // data URL for preview
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [externalUrl, setExternalUrl] = useState("");
+  const [isPublishing, setIsPublishing] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Schedule states
@@ -46,11 +51,26 @@ export default function CreatePostPage() {
   const [pollOptions, setPollOptions] = useState<string[]>(["", ""]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setTimeout(() => {
-        setVaultItems(mockDb.getVaultItems());
-      }, 0);
-    }
+    if (user?.role !== "creator") return;
+
+    const fetchVault = async () => {
+      try {
+        const data = await apiClient.get<any[]>("/vault");
+        setVaultItems(data.map((item) => ({
+          id: item.id,
+          name: item.name,
+          url: item.url,
+          type: item.type,
+          size: item.size,
+          usageCount: item.usage_count || 0,
+          date: item.date,
+        })));
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Failed to load vault");
+      }
+    };
+
+    fetchVault();
   }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -62,15 +82,14 @@ export default function CreatePostPage() {
 
     setMediaType(type);
     setFileName(file.name);
+    setSelectedFile(file);
 
     // Create a data URL for preview
     const reader = new FileReader();
     reader.onload = (ev) => {
       const result = ev.target?.result as string;
       setMediaPreview(result);
-      setMediaUrl(result);
-      mockDb.addVaultItem(file.name, result, type);
-      setVaultItems(mockDb.getVaultItems());
+      setMediaUrl("");
     };
     reader.readAsDataURL(file);
     showToast(`${type === "video" ? "Video" : "Image"} attached: ${file.name}`);
@@ -81,6 +100,7 @@ export default function CreatePostPage() {
     setMediaType(item.type);
     setFileName(item.name);
     setMediaPreview(item.url);
+    setSelectedFile(null);
     setIsVaultOpen(false);
     showToast(`Attached ${item.name} from Vault`);
   };
@@ -109,13 +129,15 @@ export default function CreatePostPage() {
     setPollOptions(updated);
   };
 
-  const handlePublish = (e: React.FormEvent) => {
+  const handlePublish = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isPublishing) return;
+
     const normalizedExternalUrl = externalUrl.trim();
     const composedContent = [content.trim(), normalizedExternalUrl].filter(Boolean).join("\n");
 
-    if (!composedContent.trim()) {
-      showToast("Post description text cannot be empty");
+    if (!composedContent.trim() && !mediaPreview) {
+      showToast("Add text or media before publishing");
       return;
     }
 
@@ -137,22 +159,38 @@ export default function CreatePostPage() {
       }
     }
     
-    // Add post to Mock DB
-    mockDb.addPost(
-      composedContent,
-      mediaUrl,
-      mediaType,
-      isPremium,
-      priceNum,
-      finalPoll,
-      null,
-      isScheduled && scheduleDate ? new Date(scheduleDate).toISOString() : null
-    );
+    if (isScheduled && scheduleDate) {
+      showToast("Scheduled publishing will be connected in the next real-data slice");
+      return;
+    }
 
-    showToast("Post published successfully!");
-    setTimeout(() => {
-      router.push("/");
-    }, 600);
+    setIsPublishing(true);
+    try {
+      let uploadedUrl = mediaUrl;
+      if (selectedFile) {
+        showToast("Uploading media to Cloudinary...");
+        const uploaded = await uploadToCloudinary(selectedFile);
+        uploadedUrl = uploaded.secure_url;
+      }
+
+      await apiClient.post("/posts", {
+        content: composedContent,
+        media_urls: uploadedUrl ? [uploadedUrl] : [],
+        media_type: uploadedUrl ? mediaType : "",
+        is_premium: isPremium,
+        price: priceNum,
+        poll: finalPoll,
+      });
+
+      showToast("Post published successfully!");
+      setTimeout(() => {
+        router.push("/");
+      }, 600);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to publish post");
+    } finally {
+      setIsPublishing(false);
+    }
   };
 
   return (
@@ -236,7 +274,7 @@ export default function CreatePostPage() {
                 {mediaPreview && (
                   <div className="bg-background border border-border rounded-xl overflow-hidden animate-fade-in">
                     {mediaType === "video" ? (
-                      <video src={mediaPreview} controls className="w-full max-h-[240px] object-contain" />
+                      <VideoPlayer src={mediaPreview} className="max-h-[260px] w-full" />
                     ) : (
                       <img src={mediaPreview} alt="Preview" className="w-full max-h-[240px] object-cover" />
                     )}
@@ -249,7 +287,7 @@ export default function CreatePostPage() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => { setMediaUrl(""); setFileName(""); setMediaPreview(""); }}
+                        onClick={() => { setMediaUrl(""); setFileName(""); setMediaPreview(""); setSelectedFile(null); }}
                         className="text-red-500 hover:text-red-600 text-[10px] font-bold cursor-pointer shrink-0 ml-2"
                       >
                         Remove
@@ -330,7 +368,7 @@ export default function CreatePostPage() {
                     </div>
 
                     <div className="relative flex items-center bg-surface border border-border rounded-xl px-4 py-2.5 focus-within:border-primary transition-all">
-                      <span className="text-xs font-bold text-text-muted mr-1">$</span>
+                      <span className="text-xs font-bold text-text-muted mr-1">₹</span>
                       <input
                         type="number"
                         step="0.01"
@@ -340,7 +378,7 @@ export default function CreatePostPage() {
                         onChange={(e) => setPrice(e.target.value)}
                         className="w-full text-xs font-bold bg-transparent outline-none text-text-main"
                       />
-                      <span className="text-[10px] font-bold text-text-muted select-none">USD</span>
+                      <span className="text-[10px] font-bold text-text-muted select-none">INR</span>
                     </div>
                   </div>
                 )}
@@ -434,10 +472,13 @@ export default function CreatePostPage() {
 
                 <button
                   type="submit"
-                  className="bg-primary hover:bg-primary-hover active:scale-95 text-white text-xs font-black uppercase tracking-wider px-6 py-2.5 rounded-full transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+                  disabled={isPublishing}
+                  className={`bg-primary hover:bg-primary-hover active:scale-95 text-white text-xs font-black uppercase tracking-wider px-6 py-2.5 rounded-full transition-all shadow-md flex items-center gap-1.5 ${
+                    isPublishing ? "cursor-wait opacity-70" : "cursor-pointer"
+                  }`}
                 >
-                  <span>Publish</span>
-                  <span className="material-symbols-outlined text-[15px] font-black">send</span>
+                  <span>{isPublishing ? "Publishing..." : "Publish"}</span>
+                  <span className="material-symbols-outlined text-[15px] font-black">{isPublishing ? "hourglass_empty" : "send"}</span>
                 </button>
               </div>
             </form>

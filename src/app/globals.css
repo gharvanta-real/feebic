@@ -241,3 +241,252 @@ video:not(.rounded-full) {
   border-radius: var(--radius-xl, 12px);
 }
 
+.video-range {
+  --video-progress: 0%;
+  height: 18px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+}
+
+.video-range:focus {
+  outline: none;
+}
+
+.video-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    to right,
+    hsl(var(--primary-hsl)) 0%,
+    hsl(var(--primary-hsl)) var(--video-progress),
+    rgba(255, 255, 255, 0.28) var(--video-progress),
+    rgba(255, 255, 255, 0.28) 100%
+  );
+}
+
+.video-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 14px;
+  width: 14px;
+  margin-top: -5px;
+  border-radius: 9999px;
+  border: 2px solid white;
+  background: hsl(var(--primary-hsl));
+}
+
+.video-range::-moz-range-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.video-range::-moz-range-progress {
+  height: 4px;
+  border-radius: 9999px;
+  background: hsl(var(--primary-hsl));
+}
+
+.video-range::-moz-range-thumb {
+  height: 14px;
+  width: 14px;
+  border-radius: 9999px;
+  border: 2px solid white;
+  background: hsl(var(--primary-hsl));
+}
+
+/* Premium backgrounds & patterns */
+.bg-dot-pattern {
+  background-image: radial-gradient(var(--border) 1.2px, transparent 1.2px);
+  background-size: 20px 20px;
+}
+
+.bg-radial-glow {
+  background: radial-gradient(circle at 50% 50%, hsla(var(--primary-hsl) / 0.08) 0%, transparent 70%);
+}
+
+/* Premium Clerk Auth UI Style Overrides */
+.cl-rootBox {
+  width: 100%;
+}
+
+.cl-card {
+  background-color: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 28px !important;
+  box-shadow: var(--clerk-card-shadow) !important;
+  padding: 32px 28px !important;
+  width: 100% !important;
+  max-width: 440px !important;
+  margin: 0 auto;
+}
+
+.cl-header {
+  margin-bottom: 24px !important;
+}
+
+.cl-headerTitle {
+  color: var(--text-main) !important;
+  font-family: var(--font-sans) !important;
+  font-weight: 800 !important;
+  font-size: 22px !important;
+  letter-spacing: -0.03em !important;
+  margin-bottom: 4px !important;
+}
+
+.cl-headerSubtitle {
+  color: var(--text-muted) !important;
+  font-family: var(--font-sans) !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+}
+
+.cl-socialButtons {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+
+.cl-socialButtonsBlockButton {
+  border: 1px solid var(--border) !important;
+  background-color: transparent !important;
+  border-radius: 9999px !important;
+  height: 44px !important;
+  transition: all var(--transition-fast) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+}
+
+.cl-socialButtonsBlockButton:hover {
+  background-color: hsl(var(--border-hsl) / 0.15) !important;
+  border-color: var(--text-muted) !important;
+}
+
+.cl-socialButtonsBlockButtonText {
+  color: var(--text-main) !important;
+  font-family: var(--font-sans) !important;
+  font-weight: 700 !important;
+  font-size: 13px !important;
+}
+
+.cl-dividerRow {
+  margin: 20px 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.cl-dividerText {
+  color: var(--text-muted) !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.12em !important;
+  padding: 0 12px !important;
+}
+
+.cl-dividerLine {
+  background-color: var(--border) !important;
+  height: 1px !important;
+  flex-grow: 1 !important;
+}
+
+.cl-form {
+  gap: 16px !important;
+}
+
+.cl-formField {
+  margin-bottom: 12px !important;
+}
+
+.cl-formFieldLabel {
+  color: var(--text-main) !important;
+  font-family: var(--font-sans) !important;
+  font-weight: 700 !important;
+  font-size: 12px !important;
+  margin-bottom: 6px !important;
+  margin-left: 2px !important;
+}
+
+.cl-formFieldInput {
+  background-color: hsl(var(--background-hsl) / 0.4) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  padding: 10px 14px !important;
+  font-size: 13px !important;
+  color: var(--text-main) !important;
+  outline: none !important;
+  transition: all var(--transition-fast) !important;
+  width: 100% !important;
+}
+
+.cl-formFieldInput:focus {
+  border-color: var(--primary) !important;
+  background-color: var(--background) !important;
+}
+
+.cl-formFieldInputRow {
+  position: relative !important;
+}
+
+.cl-formFieldAction {
+  color: var(--primary) !important;
+  font-family: var(--font-sans) !important;
+  font-weight: 700 !important;
+  font-size: 12px !important;
+}
+
+.cl-formFieldAction:hover {
+  text-decoration: underline !important;
+}
+
+.cl-formButtonPrimary {
+  background-color: var(--primary) !important;
+  color: #ffffff !important;
+  border-radius: 9999px !important;
+  padding: 11px 20px !important;
+  font-family: var(--font-sans) !important;
+  font-weight: 800 !important;
+  font-size: 13px !important;
+  text-transform: none !important;
+  transition: all var(--transition-fast) !important;
+  box-shadow: none !important;
+  cursor: pointer !important;
+  width: 100% !important;
+  margin-top: 6px !important;
+}
+
+.cl-formButtonPrimary:hover {
+  background-color: var(--primary-hover) !important;
+}
+
+.cl-footer {
+  background-color: transparent !important;
+  margin-top: 16px !important;
+}
+
+.cl-footerActionText {
+  color: var(--text-muted) !important;
+  font-family: var(--font-sans) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+
+.cl-footerActionLink {
+  color: var(--primary) !important;
+  font-family: var(--font-sans) !important;
+  font-weight: 700 !important;
+  font-size: 13px !important;
+}
+
+.cl-footerActionLink:hover {
+  text-decoration: underline !important;
+}
+
+.cl-internal-b3826t {
+  display: none !important; /* Hide standard Clerk branding link if needed */
+}

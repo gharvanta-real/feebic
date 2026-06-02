@@ -2,9 +2,10 @@
 
 import React, { useState, useEffect } from "react";
 import { useUser } from "@/context/UserContext";
+import { apiClient } from "@/lib/apiClient";
 
 export default function SecuritySettingsPage() {
-  const { showToast } = useUser();
+  const { showToast, user, refreshUserProfile } = useUser();
   const [twoFactor, setTwoFactor] = useState(false);
   const [biometric, setBiometric] = useState(true);
 
@@ -13,29 +14,31 @@ export default function SecuritySettingsPage() {
   const [confirmPass, setConfirmPass] = useState("");
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setTimeout(() => {
-        setTwoFactor(localStorage.getItem("ch_security_2fa") === "true");
-        setBiometric(localStorage.getItem("ch_security_biometric") !== "false");
-      }, 0);
+    if (user) {
+      setTwoFactor(!!user.twoFactor);
+      setBiometric(user.biometric !== false);
     }
-  }, []);
+  }, [user]);
 
-  const handleToggle = (key: string, current: boolean, setter: (val: boolean) => void, label: string) => {
+  const handleToggle = async (key: string, current: boolean, setter: (val: boolean) => void, label: string) => {
     const next = !current;
     setter(next);
-    localStorage.setItem(key, next ? "true" : "false");
-    showToast(`${label} ${next ? "enabled" : "disabled"}`);
+    
+    try {
+      await apiClient.put("/users/security/settings", {
+        [key === "ch_security_2fa" ? "two_factor" : "biometric"]: next,
+      });
+      showToast(`${label} ${next ? "enabled" : "disabled"}`);
+      refreshUserProfile();
+    } catch (err: any) {
+      setter(current);
+      showToast(err.message || `Failed to update ${label}`);
+    }
   };
 
-  const handlePasswordSubmit = (e: React.FormEvent) => {
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const stored = localStorage.getItem("ch_user_password") || "password123";
 
-    if (currentPass !== stored && currentPass !== "") {
-      showToast("Current password is incorrect");
-      return;
-    }
     if (newPass.length < 8) {
       showToast("New password must be at least 8 characters");
       return;
@@ -45,11 +48,19 @@ export default function SecuritySettingsPage() {
       return;
     }
 
-    localStorage.setItem("ch_user_password", newPass);
-    setCurrentPass("");
-    setNewPass("");
-    setConfirmPass("");
-    showToast("Password updated successfully!");
+    try {
+      await apiClient.post("/users/security/password", {
+        current_password: currentPass,
+        new_password: newPass,
+      });
+      setCurrentPass("");
+      setNewPass("");
+      setConfirmPass("");
+      showToast("Password updated successfully!");
+      refreshUserProfile();
+    } catch (err: any) {
+      showToast(err.message || "Failed to update password");
+    }
   };
 
   return (

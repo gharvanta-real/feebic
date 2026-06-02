@@ -6,7 +6,8 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { MobileHeader } from "@/components/layout/MobileHeader";
 import { useUser } from "@/context/UserContext";
-import { mockDb, Creator, Post } from "@/lib/mockDb";
+import type { Creator, Post } from "@/lib/mockDb";
+import { apiClient } from "@/lib/apiClient";
 import { PaymentModal } from "@/components/ui/PaymentModal";
 import { VerifiedBadge } from "@/components/ui/VerifiedBadge";
 import { PostCard } from "@/components/features/PostCard";
@@ -32,13 +33,92 @@ function ProfileContent() {
   // Lightbox visual overlay state
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
-  const fetchProfile = () => {
+  type BackendPost = Partial<Post> & {
+    creator_username?: string;
+    creator_name?: string;
+    creator_avatar?: string;
+    media_urls?: string[];
+    media_type?: string;
+    is_premium?: boolean;
+    comments_count?: number;
+    is_liked?: boolean;
+    is_bookmarked?: boolean;
+    is_unlocked?: boolean;
+    reposted_from_id?: string | null;
+    reposted_by?: string | null;
+    isLiked?: boolean;
+    isBookmarked?: boolean;
+    isUnlocked?: boolean;
+    created_at?: string;
+  };
+
+  const normalizePost = (post: BackendPost, index: number): Post => {
+    const mediaUrls = post.mediaUrls || post.media_urls || [];
+    const createdAt = post.created_at ? new Date(post.created_at) : null;
+
+    return {
+      id: post.id || `post-fallback-${index}`,
+      creatorUsername: post.creatorUsername || post.creator_username || "",
+      creatorName: post.creatorName || post.creator_name || "Felbic Creator",
+      creatorAvatar: post.creatorAvatar || post.creator_avatar || "/assets/39bc5c3eed51d62c1022c60686bb459a.png",
+      isPinned: post.isPinned || false,
+      mediaUrl: post.mediaUrl || mediaUrls[0] || "",
+      mediaUrls,
+      mediaType: post.mediaType || post.media_type || "image",
+      content: post.content || "",
+      likes: post.likes || 0,
+      commentsCount: post.commentsCount || post.comments_count || 0,
+      time: post.time || (createdAt ? createdAt.toLocaleDateString() : "Just now"),
+      isPremium: post.isPremium || post.is_premium || false,
+      price: post.price || 0,
+      poll: post.poll || null,
+      fundraiser: post.fundraiser || null,
+      publishAt: post.publishAt || null,
+      repostedFromId: post.repostedFromId || post.reposted_from_id || null,
+      repostedBy: post.repostedBy || post.reposted_by || null,
+      isLiked: post.isLiked || post.is_liked || false,
+      isBookmarked: post.isBookmarked || post.is_bookmarked || false,
+      isUnlocked: post.isUnlocked || post.is_unlocked || false,
+    } as Post;
+  };
+
+  const mapCreatorProfile = (profile: any): Creator => ({
+    name: profile.display_name || profile.displayName || profile.name || "Felbic Creator",
+    username: profile.username,
+    avatar: profile.avatar || "/assets/39bc5c3eed51d62c1022c60686bb459a.png",
+    cover: profile.cover_photo || profile.coverPhoto || profile.cover || "/assets/cb15617a79d7713ffa4a6de36f808a76.png",
+    bio: profile.bio || "",
+    location: profile.location || "",
+    website: profile.website || "",
+    likes: String(profile.likes_count || 0),
+    subPrice: profile.sub_price || profile.subPrice || 0,
+    verified: true,
+    tag: "Creator",
+    fansCount: String(profile.fans_count || 0),
+    postsCount: String(profile.posts_count || 0),
+    photosCount: String(profile.photos_count || 0),
+    videosCount: String(profile.videos_count || 0),
+    joinedDate: "2026",
+  });
+
+  const fetchProfile = async () => {
     if (!user) return;
 
     const username = queryUser.replace("@", "").trim();
     const ownUsername = user.username.replace("@", "").trim();
+    const targetUsername = !username || username === ownUsername ? ownUsername : username;
 
-    if (!username || username === ownUsername) {
+    let targetPosts: Post[] = [];
+    try {
+      const allPosts = (await apiClient.get<BackendPost[]>("/posts")).map((post, idx) => normalizePost(post, idx));
+      targetPosts = allPosts.filter((p) => p.creatorUsername === targetUsername);
+      setPosts(targetPosts);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to load profile posts");
+      setPosts([]);
+    }
+
+    if (targetUsername === ownUsername) {
       // Viewing own profile
       setIsSelf(true);
       setProfileData({
@@ -49,26 +129,23 @@ function ProfileContent() {
         bio: user.bio,
         location: user.location || "Los Angeles, CA",
         website: user.website || "lanarhoades.fans",
-        likes: "7.8K",
-        subPrice: 14.99,
+        likes: String(targetPosts.reduce((sum, p) => sum + (p.likes || 0), 0)),
+        subPrice: 0,
         verified: user.role === "creator",
         tag: user.role === "creator" ? "Creator" : "Fan",
-        fansCount: "1.1K",
-        postsCount: "1.2K",
-        photosCount: "228",
-        videosCount: "356",
+        fansCount: "0",
+        postsCount: String(targetPosts.length),
+        photosCount: String(targetPosts.filter((p) => p.mediaType === "image").length),
+        videosCount: String(targetPosts.filter((p) => p.mediaType === "video").length),
         joinedDate: "Sep 2020"
       });
-      setPosts(mockDb.getPostsByUser(user.username, true));
     } else {
       // Viewing someone else's profile
       setIsSelf(false);
-      const creator = mockDb.getCreator(username);
-      if (creator) {
-        setProfileData(creator);
-        setPosts(mockDb.getPostsByUser(username));
-      } else {
-        // Fallback or invalid user
+      try {
+        const creator = await apiClient.get<any>(`/users/creator/${targetUsername}`);
+        setProfileData(mapCreatorProfile(creator));
+      } catch {
         showToast("User profile not found");
         router.push("/");
       }
@@ -96,7 +173,7 @@ function ProfileContent() {
   const isPostLocked = (post: Post) => {
     if (isSelf) return false;
     if (!post.isPremium) return false;
-    const isUnlocked = mockDb.isUnlocked(post.id);
+    const isUnlocked = Boolean((post as Post & { isUnlocked?: boolean }).isUnlocked);
     return !isSubbed && !isUnlocked;
   };
 
@@ -123,26 +200,36 @@ function ProfileContent() {
     setIsPaymentOpen(true);
   };
 
-  const handleSubscribeConfirm = () => {
+  const handleSubscribeConfirm = async (_tipMessage?: string, paymentSource: "wallet" | "card" = "wallet") => {
+    if (paymentSource !== "wallet") {
+      showToast("Card checkout is disabled in real-dev mode. Add wallet funds and retry.");
+      return;
+    }
+
     if (selectedPost) {
-      mockDb.unlockContent(selectedPost.id, selectedPost.price);
-      showToast(`Successfully unlocked post content!`);
-      setSelectedPost(null);
+      try {
+        await apiClient.post(`/posts/${selectedPost.id}/unlock`);
+        showToast(`Successfully unlocked post content!`);
+        setSelectedPost(null);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Failed to unlock post");
+        return;
+      }
     } else {
-      subscribeToCreator(profileData.username, paymentPrice);
-      showToast(`Successfully subscribed to @${profileData.username}!`);
+      const ok = await subscribeToCreator(profileData.username, paymentPrice);
+      if (!ok) return;
     }
     setIsPaymentOpen(false);
     fetchProfile();
   };
 
-  const handleToggleFavorite = () => {
-    const res = toggleFavorite(profileData.username);
+  const handleToggleFavorite = async () => {
+    const res = await toggleFavorite(profileData.username);
     showToast(res ? `Added @${profileData.username} to favorites` : `Removed @${profileData.username} from favorites`);
   };
 
-  const handleToggleBlock = () => {
-    const res = toggleBlock(profileData.username);
+  const handleToggleBlock = async () => {
+    const res = await toggleBlock(profileData.username);
     showToast(res ? `@${profileData.username} has been blocked` : `@${profileData.username} has been unblocked`);
     if (res) router.push("/");
   };
@@ -172,7 +259,7 @@ function ProfileContent() {
     } else if (activeTab === "videos") {
       return published.filter(p => p.mediaType === "video");
     } else if (activeTab === "likes") {
-      return published.filter(p => mockDb.isPostLiked(p.id));
+      return published.filter(p => (p as any).isLiked);
     }
     return published;
   };
@@ -389,14 +476,14 @@ function ProfileContent() {
                 <p className="text-[13px] font-black text-text-main font-sans">Subscription</p>
                 {profileData.discountActive ? (
                   <p className="text-[11.5px] font-bold mt-0.75 text-success">
-                    <span className="line-through text-text-muted mr-1.5">${profileData.subPrice}</span>
-                    <span>${(profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)).toFixed(2)} per month</span>
+                    <span className="line-through text-text-muted mr-1.5">₹{profileData.subPrice}</span>
+                    <span>₹{(profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)).toFixed(2)} per month</span>
                     <span className="bg-success text-white text-[8px] font-black uppercase px-2 py-0.5 rounded-full ml-2 select-none tracking-wider">
                       {profileData.discountPercent}% OFF
                     </span>
                   </p>
                 ) : (
-                  <p className="text-[11.5px] text-text-muted font-bold mt-0.75">${profileData.subPrice} per month</p>
+                  <p className="text-[11.5px] text-text-muted font-bold mt-0.75">₹{profileData.subPrice} per month</p>
                 )}
               </div>
               <button
@@ -423,7 +510,7 @@ function ProfileContent() {
                 <div>
                   <p className="text-[12.5px] font-extrabold text-text-main">3 MONTHS (10% off)</p>
                   <p className="text-[11px] text-text-muted font-semibold mt-0.75">
-                    ${((profileData.discountActive 
+                    ₹{((profileData.discountActive 
                       ? profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)
                       : profileData.subPrice) * 3 * 0.9).toFixed(2)} total
                   </p>
@@ -445,7 +532,7 @@ function ProfileContent() {
                 <div>
                   <p className="text-[12.5px] font-extrabold text-text-main">6 MONTHS (15% off)</p>
                   <p className="text-[11px] text-text-muted font-semibold mt-0.75">
-                    ${((profileData.discountActive 
+                    ₹{((profileData.discountActive 
                       ? profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)
                       : profileData.subPrice) * 6 * 0.85).toFixed(2)} total
                   </p>
@@ -483,7 +570,7 @@ function ProfileContent() {
                 className="bg-primary hover:bg-primary-hover active:scale-95 text-white px-8 py-3 rounded-full text-xs font-black uppercase tracking-wider shadow-md shadow-primary/10 transition-all flex items-center gap-1.5 cursor-pointer"
               >
                 <span>
-                  Subscribe for $
+                  Subscribe for ₹
                   {profileData.discountActive
                     ? (profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)).toFixed(2)
                     : profileData.subPrice}
@@ -594,7 +681,7 @@ function ProfileContent() {
                                   lock
                                 </span>
                                 <span className="text-[10px] font-black text-white/90 bg-black/40 px-2 py-0.75 rounded-full tracking-wider shadow-sm">
-                                  ${post.price}
+                                  ₹{post.price}
                                 </span>
                               </div>
                             </>

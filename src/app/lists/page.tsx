@@ -5,77 +5,124 @@ import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import { MobileHeader } from "@/components/layout/MobileHeader";
 import { useUser } from "@/context/UserContext";
-import { mockDb, CustomList, Creator } from "@/lib/mockDb";
+import { apiClient } from "@/lib/apiClient";
+
+type CreatorSummary = {
+  name: string;
+  username: string;
+  avatar: string;
+};
 
 export default function ListsPage() {
   const { blockedUsers, favoriteCreators, toggleBlock, toggleFavorite, showToast } = useUser();
-  const [customLists, setCustomLists] = useState<CustomList[]>([]);
   const [activeTab, setActiveTab] = useState<"custom" | "favorites" | "blocked">("custom");
   const [newListName, setNewListName] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
-
-  // States to add user to a specific list
-  const [addUserInputs, setAddUserInputs] = useState<Record<string, string>>({});
-
-  const fetchLists = () => {
-    setCustomLists(mockDb.getCustomLists());
-  };
+  const [creatorDirectory, setCreatorDirectory] = useState<Record<string, CreatorSummary>>({});
+  const [lists, setLists] = useState<any[]>([]);
+  const [loadingLists, setLoadingLists] = useState(true);
+  const [editingListId, setEditingListId] = useState<string | null>(null);
+  const [memberUsernameToAdd, setMemberUsernameToAdd] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    setTimeout(() => {
-      fetchLists();
-    }, 0);
+    apiClient.get<any[]>("/users/creators")
+      .then((creators) => {
+        const next: Record<string, CreatorSummary> = {};
+        creators.forEach((creator) => {
+          next[creator.username] = {
+            name: creator.display_name || creator.name || creator.username,
+            username: creator.username,
+            avatar: creator.avatar || "/assets/be708ecefc41b969ee64c477f954168c.png",
+          };
+        });
+        setCreatorDirectory(next);
+      })
+      .catch(() => {});
 
-    const handleListsUpdate = () => fetchLists();
-    window.addEventListener("ch_lists_updated", handleListsUpdate);
-    return () => window.removeEventListener("ch_lists_updated", handleListsUpdate);
+    apiClient.get<any[]>("/lists")
+      .then((data) => {
+        setLists(data);
+        setLoadingLists(false);
+      })
+      .catch((err) => {
+        setLoadingLists(false);
+        showToast(err instanceof Error ? err.message : "Failed to load custom lists");
+      });
   }, []);
 
-  const handleCreateList = (e: React.FormEvent) => {
+  const handleCreateList = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newListName.trim()) return;
 
-    mockDb.createCustomList(newListName.trim());
-    setNewListName("");
-    setShowAddForm(false);
-    fetchLists();
-    showToast("New list created!");
-  };
-
-  const handleDeleteList = (id: string) => {
-    if (confirm("Are you sure you want to delete this list?")) {
-      mockDb.deleteCustomList(id);
-      fetchLists();
-      showToast("List deleted");
+    try {
+      const newList = await apiClient.post<any>("/lists", { name: newListName.trim() });
+      setLists([newList, ...lists]);
+      setNewListName("");
+      setShowAddForm(false);
+      showToast(`Created custom list "${newList.name}"`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to create list");
     }
   };
 
-  const handleAddUserToList = (listId: string) => {
-    const username = addUserInputs[listId] || "";
-    if (!username.trim()) return;
-
-    const cleanUsername = username.replace("@", "").trim();
-    
-    // Check if creator exists or is a valid string
-    mockDb.addUserToList(listId, cleanUsername);
-    setAddUserInputs({ ...addUserInputs, [listId]: "" });
-    fetchLists();
-    showToast(`Added @${cleanUsername} to list`);
+  const handleDeleteList = async (id: string) => {
+    try {
+      await apiClient.delete(`/lists/${id}`);
+      setLists(lists.filter(l => l.id !== id));
+      if (editingListId === id) setEditingListId(null);
+      showToast("List deleted successfully");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to delete list");
+    }
   };
 
-  const handleRemoveUserFromList = (listId: string, username: string) => {
-    mockDb.removeUserFromList(listId, username);
-    fetchLists();
-    showToast(`Removed @${username} from list`);
+  const handleAddMember = async (listId: string) => {
+    const username = memberUsernameToAdd[listId];
+    if (!username) return;
+
+    try {
+      await apiClient.post(`/lists/${listId}/members`, { username });
+      setLists(lists.map(list => {
+        if (list.id === listId) {
+          return {
+            ...list,
+            usernames: [...list.usernames, username]
+          };
+        }
+        return list;
+      }));
+      setMemberUsernameToAdd({ ...memberUsernameToAdd, [listId]: "" });
+      showToast(`Added @${username} to list`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to add member");
+    }
   };
 
-  const handleUnblock = (username: string) => {
-    toggleBlock(username);
+  const handleRemoveMember = async (listId: string, username: string) => {
+    try {
+      await apiClient.delete(`/lists/${listId}/members/${username}`);
+      setLists(lists.map(list => {
+        if (list.id === listId) {
+          return {
+            ...list,
+            usernames: list.usernames.filter((u: string) => u !== username)
+          };
+        }
+        return list;
+      }));
+      showToast(`Removed @${username} from list`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to remove member");
+    }
+  };
+
+  const handleUnblock = async (username: string) => {
+    await toggleBlock(username);
     showToast(`Unblocked @${username}`);
   };
 
-  const handleRemoveFavorite = (username: string) => {
-    toggleFavorite(username);
+  const handleRemoveFavorite = async (username: string) => {
+    await toggleFavorite(username);
     showToast(`Removed @${username} from favorites`);
   };
 
@@ -154,78 +201,122 @@ export default function ListsPage() {
               )}
 
               {/* Lists Grid */}
-              {customLists.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-center space-y-2 select-none">
+              {loadingLists ? (
+                <div className="flex justify-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                </div>
+              ) : lists.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center space-y-2 select-none border border-dashed border-border rounded-2xl bg-surface/40">
                   <span className="material-symbols-outlined text-[48px] text-text-muted">folder_open</span>
-                  <p className="text-xs font-bold text-text-main">No custom lists yet</p>
-                  <p className="text-[10px] text-text-muted max-w-[220px]">Build directories of fans or creators for target messaging or tracking.</p>
+                  <p className="text-xs font-bold text-text-main">No custom lists created yet</p>
+                  <p className="text-[10px] text-text-muted max-w-[260px]">Create custom audience lists above to group your subscribers and filter your mass broadcasts.</p>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {customLists.map((list) => (
-                    <div key={list.id} className="bg-surface border border-border rounded-2xl p-4.5 space-y-4 shadow-sm">
-                      
-                      {/* List Header */}
-                      <div className="flex justify-between items-center select-none pb-2 border-b border-border/40">
-                        <div>
-                          <h3 className="text-xs font-black text-text-main uppercase tracking-wider">{list.name}</h3>
-                          <p className="text-[9px] text-text-muted mt-0.5 font-bold">{list.usernames.length} members linked</p>
+                  {lists.map((list) => {
+                    const isEditing = editingListId === list.id;
+                    return (
+                      <div key={list.id} className="bg-surface border border-border rounded-2xl p-4 space-y-4 transition-all shadow-sm">
+                        <div className="flex justify-between items-center select-none">
+                          <div>
+                            <h3 className="text-sm font-black text-text-main">{list.name}</h3>
+                            <p className="text-[10px] text-text-muted font-bold">
+                              {list.usernames ? list.usernames.length : 0} {list.usernames?.length === 1 ? "member" : "members"}
+                            </p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setEditingListId(isEditing ? null : list.id)}
+                              className="text-xs font-bold text-primary border border-primary/20 bg-primary/5 hover:bg-primary hover:text-white px-4 py-1.5 rounded-full transition-all cursor-pointer"
+                            >
+                              {isEditing ? "Done" : "Manage Members"}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteList(list.id)}
+                              className="h-8 w-8 rounded-full border border-border text-red-500 hover:bg-red-500/10 flex items-center justify-center cursor-pointer transition-colors"
+                              title="Delete List"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">delete</span>
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          onClick={() => handleDeleteList(list.id)}
-                          className="h-8 w-8 rounded-full border border-border text-red-500 hover:bg-red-500/10 flex items-center justify-center transition-colors cursor-pointer"
-                          title="Delete List"
-                        >
-                          <span className="material-symbols-outlined text-[17px]">delete</span>
-                        </button>
-                      </div>
 
-                      {/* List Members */}
-                      <div className="space-y-2">
-                        {list.usernames.length === 0 ? (
-                          <p className="text-[10px] text-text-muted italic py-1">No users added to this list yet.</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-2">
-                            {list.usernames.map((uname) => (
-                              <div
-                                key={uname}
-                                className="bg-background border border-border pl-2.5 pr-1.5 py-1 rounded-full flex items-center gap-1.5 text-[10px] font-bold text-text-main select-none animate-fade-in"
-                              >
-                                <span>@{uname}</span>
-                                <button
-                                  onClick={() => handleRemoveUserFromList(list.id, uname)}
-                                  className="material-symbols-outlined text-[14px] text-text-muted hover:text-red-500 cursor-pointer"
+                        {/* Collapsible edit members section */}
+                        {isEditing && (
+                          <div className="border-t border-border pt-4 space-y-3 animate-fade-in">
+                            <h4 className="text-[10px] font-bold text-text-muted uppercase tracking-wider">List Members</h4>
+                            
+                            {!list.usernames || list.usernames.length === 0 ? (
+                              <p className="text-xs text-text-muted">This list has no members yet.</p>
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {list.usernames.map((username: string) => {
+                                  const creatorObj = creatorDirectory[username];
+                                  return (
+                                    <div key={username} className="bg-background border border-border/80 p-2.5 rounded-xl flex justify-between items-center gap-3">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <img
+                                          src={creatorObj?.avatar || "/assets/be708ecefc41b969ee64c477f954168c.png"}
+                                          alt={username}
+                                          className="h-7 w-7 rounded-full object-cover border border-border"
+                                        />
+                                        <div className="min-w-0">
+                                          <p className="text-xs font-bold text-text-main truncate">
+                                            {creatorObj?.name || username}
+                                          </p>
+                                          <p className="text-[9px] text-text-muted truncate">@{username}</p>
+                                        </div>
+                                      </div>
+                                      <button
+                                        onClick={() => handleRemoveMember(list.id, username)}
+                                        className="text-red-500 hover:text-red-600 text-[10px] font-bold cursor-pointer"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {/* Add member form section */}
+                            <div className="bg-background/50 border border-border p-3 rounded-xl space-y-2">
+                              <label className="block text-[9px] font-bold text-text-muted uppercase tracking-wider">
+                                Add member from directory
+                              </label>
+                              <div className="flex gap-2">
+                                <select
+                                  value={memberUsernameToAdd[list.id] || ""}
+                                  onChange={(e) => setMemberUsernameToAdd({
+                                    ...memberUsernameToAdd,
+                                    [list.id]: e.target.value
+                                  })}
+                                  className="flex-grow px-3 py-1.5 bg-background border border-border focus:border-primary rounded-lg text-xs font-semibold outline-none text-text-main"
                                 >
-                                  close
+                                  <option value="">-- Select user to add --</option>
+                                  {Object.values(creatorDirectory)
+                                    .filter(c => !list.usernames || !list.usernames.includes(c.username))
+                                    .map(c => (
+                                      <option key={c.username} value={c.username}>
+                                        {c.name} (@{c.username})
+                                      </option>
+                                    ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddMember(list.id)}
+                                  disabled={!memberUsernameToAdd[list.id]}
+                                  className="bg-primary text-white text-xs font-black px-4 rounded-lg hover:opacity-95 cursor-pointer disabled:opacity-50"
+                                >
+                                  Add
                                 </button>
                               </div>
-                            ))}
+                            </div>
                           </div>
                         )}
                       </div>
-
-                      {/* Add Member inline form */}
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          placeholder="Add user by username..."
-                          value={addUserInputs[list.id] || ""}
-                          onChange={(e) => setAddUserInputs({ ...addUserInputs, [list.id]: e.target.value })}
-                          className="flex-grow px-3 py-1.5 bg-background border border-border focus:border-primary rounded-lg text-[10px] font-bold outline-none text-text-main"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleAddUserToList(list.id);
-                          }}
-                        />
-                        <button
-                          onClick={() => handleAddUserToList(list.id)}
-                          className="bg-primary/10 text-primary hover:bg-primary hover:text-white px-3 text-[10px] font-black rounded-lg transition-colors cursor-pointer"
-                        >
-                          Add User
-                        </button>
-                      </div>
-
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
@@ -243,7 +334,7 @@ export default function ListsPage() {
             ) : (
               <div className="space-y-2">
                 {favoriteCreators.map((username) => {
-                  const creatorObj = mockDb.getCreator(username);
+                  const creatorObj = creatorDirectory[username];
                   return (
                     <div
                       key={username}
@@ -288,7 +379,7 @@ export default function ListsPage() {
             ) : (
               <div className="space-y-2">
                 {blockedUsers.map((username) => {
-                  const creatorObj = mockDb.getCreator(username);
+                  const creatorObj = creatorDirectory[username];
                   return (
                     <div
                       key={username}

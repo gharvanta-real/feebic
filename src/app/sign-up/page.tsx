@@ -1,217 +1,95 @@
 "use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { useUser } from "@/context/UserContext";
+import React from "react";
+import { SignUp } from "@clerk/nextjs";
 
 export default function SignUpPage() {
-  const router = useRouter();
-  const { showToast } = useUser();
-
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [agree, setAgree] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleSignUp = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!agree) {
-      showToast("You must agree to the Terms of Service");
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    setTimeout(() => {
-      setIsSubmitting(false);
-      localStorage.removeItem("ch_logged_out");
-      
-      // Set onboarding to false to force setup details
-      localStorage.setItem("ch_onboarding_done", "false");
-      
-      // Pre-fill email so onboarding can pre-load if needed
-      localStorage.setItem("ch_user_email", email.trim().toLowerCase());
-      
-      showToast("Account registered! Directing to profile builder.");
-      
-      setTimeout(() => {
-        router.replace("/onboarding");
-      }, 500);
-    }, 1200);
-  };
-
-  const handleQuickLogin = (role: "fan" | "creator") => {
-    setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
-      localStorage.removeItem("ch_logged_out");
-      
-      localStorage.setItem("ch_onboarding_done", "true");
-      localStorage.setItem("ch_user_role", role);
-      
-      if (role === "creator") {
-        localStorage.setItem("ch_user_profile", JSON.stringify({
-          displayName: "Alex Rivera",
-          username: "arivera",
-          bio: "A creative professional building premium software.",
-          avatar: "/assets/5dc72593d711173af1fe7ab74be0fa56.png",
-          role: "creator",
-          coverPhoto: "/assets/082f4723389abb44b68b64dfc082268b.png",
-          location: "Los Angeles, USA",
-          website: "alexrivera.com",
-          joinedDate: "Joined May 2026"
-        }));
-      } else {
-        localStorage.setItem("ch_user_profile", JSON.stringify({
-          displayName: "Sam Fan",
-          username: "sam_fan",
-          bio: "Supporter and follower of premium digital creators.",
-          avatar: "/assets/39bc5c3eed51d62c1022c60686bb459a.png",
-          role: "fan",
-          coverPhoto: "/assets/cb15617a79d7713ffa4a6de36f808a76.png",
-          location: "New York, USA",
-          website: "",
-          joinedDate: "Joined May 2026"
-        }));
-      }
-      
-      showToast(`Quick Logged in as ${role === "creator" ? "Creator" : "Fan"}!`);
-      
-      setTimeout(() => {
-        window.location.href = "/";
-      }, 500);
-    }, 800);
-  };
-
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 md:p-8 animate-fade-in select-none">
-      <div className="w-full max-w-[440px] bg-surface border border-border rounded-3xl p-6 md:p-8 shadow-lg flex flex-col space-y-6">
+    <div className="min-h-screen bg-background bg-dot-pattern relative flex flex-col justify-between overflow-x-hidden">
+      {/* Subtle radial glow overlay */}
+      <div className="absolute inset-0 bg-radial-glow pointer-events-none" />
+
+      {/* Main Two-Column Split Screen */}
+      <div className="flex-1 flex flex-col lg:flex-row items-center justify-center lg:justify-between px-6 py-12 lg:px-20 max-w-[1240px] mx-auto w-full gap-12 lg:gap-20 z-10">
         
-        {/* Logo Section */}
-        <div className="flex flex-col items-center justify-center space-y-2 text-center">
-          <div className="flex items-center gap-1.5 cursor-pointer">
-            <span className="material-symbols-outlined text-primary text-[36px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-              cloud
-            </span>
-            <span className="text-[30px] font-black text-primary tracking-tighter leading-none lowercase">
-              felbic
+        {/* Left Side: Platform info & marketing banner */}
+        <div className="flex-1 flex flex-col justify-center select-none text-left max-lg:items-center max-lg:text-center">
+          {/* Brand Logo - CreatorHub inspired custom branch network logo */}
+          <div className="flex items-center gap-2 cursor-pointer group">
+            <svg 
+              viewBox="0 0 32 32" 
+              className="h-10 w-10 text-primary shrink-0 transition-transform duration-300 group-hover:scale-105" 
+              fill="none" 
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <circle cx="16" cy="16" r="4.5" fill="currentColor" />
+              <line x1="16" y1="16" x2="10" y2="7.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+              <line x1="16" y1="16" x2="22.5" y2="7.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+              <line x1="16" y1="16" x2="7.5" y2="19.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+              <line x1="16" y1="16" x2="24.5" y2="19.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+              <line x1="16" y1="16" x2="16" y2="25.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+              <circle cx="10" cy="7.5" r="2.8" fill="currentColor" />
+              <circle cx="22.5" cy="7.5" r="2.8" fill="currentColor" />
+              <circle cx="7.5" cy="19.5" r="2.8" fill="currentColor" />
+              <circle cx="24.5" cy="19.5" r="2.8" fill="currentColor" />
+              <circle cx="16" cy="25.5" r="2.8" fill="currentColor" />
+            </svg>
+            <span className="text-[32px] font-black tracking-tighter leading-none font-sans select-none">
+              <span className="text-text-main">fel</span>
+              <span className="text-primary">bic</span>
             </span>
           </div>
-          <p className="text-xs text-text-muted">Create an account to discover premium creators</p>
+
+          <h1 className="text-[34px] md:text-5xl lg:text-[46px] font-black text-text-main leading-[1.15] tracking-tight mt-10 max-w-[500px]">
+            Sign up to support your favorite creators
+          </h1>
+          
+          <p className="text-xs md:text-sm text-text-muted leading-relaxed mt-5 max-w-[450px] font-medium">
+            Join a community of millions and get exclusive access to content you won't find anywhere else. Support creators directly and build meaningful connections.
+          </p>
+
+          {/* Creators Avatars Loop */}
+          <div className="flex flex-col max-lg:items-center">
+            <div className="flex items-center mt-12 select-none">
+              <div className="flex -space-x-3.5">
+                <img src="/assets/00dcbdc82244f0ba0d9f0e475c7e7780.png" className="h-[46px] w-[46px] rounded-full border-2 border-background object-cover shrink-0" alt="Lana" />
+                <img src="/assets/0c0bf4c58678d852ea7588ef1045309e.png" className="h-[46px] w-[46px] rounded-full border-2 border-background object-cover shrink-0" alt="Demi" />
+                <img src="/assets/31ccb1dded9dd42d60e1b0ab43ae8750.png" className="h-[46px] w-[46px] rounded-full border-2 border-background object-cover shrink-0" alt="Amouranth" />
+                <img src="/assets/5dc72593d711173af1fe7ab74be0fa56.png" className="h-[46px] w-[46px] rounded-full border-2 border-background object-cover shrink-0" alt="Austin" />
+                <div className="h-[46px] w-[46px] rounded-full border-2 border-background bg-primary/10 text-primary text-[11px] font-black flex items-center justify-center shrink-0">
+                  +2M
+                </div>
+              </div>
+            </div>
+            <p className="text-[12px] text-text-muted mt-4 font-bold tracking-tight">
+              Creators are already sharing their journey here.
+            </p>
+          </div>
         </div>
 
-        {/* Dynamic Credentials Form */}
-        <form onSubmit={handleSignUp} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-text-muted mb-1.5 ml-1">Full Name</label>
-            <input
-              type="text"
-              required
-              placeholder="e.g. Alex Rivera"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:border-primary transition-all text-xs outline-none text-text-main"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-text-muted mb-1.5 ml-1">Email Address</label>
-            <input
-              type="email"
-              required
-              placeholder="e.g. alex@creatorhub.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:border-primary transition-all text-xs outline-none text-text-main"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-text-muted mb-1.5 ml-1">Password</label>
-            <input
-              type="password"
-              required
-              placeholder="Minimum 8 characters..."
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:border-primary transition-all text-xs outline-none text-text-main"
-            />
-          </div>
-
-          {/* Agree Terms check */}
-          <div className="flex items-center text-[10px] ml-1">
-            <label className="flex items-center gap-1.5 text-text-muted font-bold cursor-pointer">
-              <input 
-                type="checkbox" 
-                checked={agree}
-                onChange={(e) => setAgree(e.target.checked)}
-                className="rounded border-border accent-primary" 
-              />
-              <span>I agree to the Terms of Service & Privacy Policy</span>
-            </label>
-          </div>
-
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full py-3 bg-primary text-white hover:opacity-95 active:scale-[0.98] rounded-full font-bold text-xs shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-          >
-            {isSubmitting ? (
-              <>
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-                <span>Registering...</span>
-              </>
-            ) : (
-              <>
-                <span className="material-symbols-outlined text-[16px] leading-none font-bold">person_add</span>
-                <span>Sign Up</span>
-              </>
-            )}
-          </button>
-        </form>
-
-        {/* Separator */}
-        <div className="relative flex py-1 items-center">
-          <div className="flex-grow border-t border-border/80"></div>
-          <span className="flex-shrink mx-4 text-[10px] text-text-muted font-bold uppercase tracking-wider">or test quick profiles</span>
-          <div className="flex-grow border-t border-border/80"></div>
+        {/* Right Side: Centered Clerk form card */}
+        <div className="flex-1 flex justify-center w-full lg:max-w-[480px]">
+          <SignUp 
+            routing="hash"
+            signInUrl="/login" 
+            forceRedirectUrl="/"
+          />
         </div>
 
-        {/* Direct One-Click Testing Logins */}
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={() => handleQuickLogin("creator")}
-            disabled={isSubmitting}
-            className="py-2.5 bg-surface hover:bg-[hsl(var(--text-muted-hsl)/0.03)] border border-border hover:border-text-muted rounded-xl transition-all text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer text-text-main"
-          >
-            <span className="material-symbols-outlined text-[16px] text-success" style={{ fontVariationSettings: "'FILL' 1" }}>
-              payments
-            </span>
-            <span>Creator Profile</span>
-          </button>
-          <button
-            onClick={() => handleQuickLogin("fan")}
-            disabled={isSubmitting}
-            className="py-2.5 bg-surface hover:bg-[hsl(var(--text-muted-hsl)/0.03)] border border-border hover:border-text-muted rounded-xl transition-all text-[11px] font-bold flex items-center justify-center gap-1.5 cursor-pointer text-text-main"
-          >
-            <span className="material-symbols-outlined text-[16px] text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>
-              person
-            </span>
-            <span>Fan Profile</span>
-          </button>
-        </div>
-
-        {/* Footer */}
-        <p className="text-[11px] text-text-muted text-center font-semibold">
-          Already have an account?{" "}
-          <Link href="/login" className="text-primary hover:underline font-bold">
-            Sign In
-          </Link>
-        </p>
       </div>
+
+      {/* Footer bar links */}
+      <footer className="w-full py-6 border-t border-border/40 select-none bg-background/50 backdrop-blur-sm z-10">
+        <div className="max-w-[1240px] mx-auto px-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[11px] md:text-xs text-text-muted font-bold tracking-wide">
+          <span className="hover:text-primary cursor-pointer transition-colors">About</span>
+          <span className="hover:text-primary cursor-pointer transition-colors">Help</span>
+          <span className="hover:text-primary cursor-pointer transition-colors">Terms of Service</span>
+          <span className="hover:text-primary cursor-pointer transition-colors">Privacy Policy</span>
+          <span className="hover:text-primary cursor-pointer transition-colors">Cookie Policy</span>
+          <span className="hover:text-primary cursor-pointer transition-colors">Blog</span>
+          <span className="text-text-muted/60 ml-auto max-md:mx-auto">© 2026 Felbic</span>
+        </div>
+      </footer>
     </div>
   );
 }

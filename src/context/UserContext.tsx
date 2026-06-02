@@ -2,9 +2,14 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { mockDb, UserProfile } from "@/lib/mockDb";
+import { apiClient } from "@/lib/apiClient";
+import { useUser as useClerkUser } from "@clerk/nextjs";
+
 
 interface UserContextType {
   user: UserProfile | null;
+  authStatus: "checking" | "syncing" | "ready";
+  authError: string | null;
   walletBalance: number;
   unreadNotificationsCount: number;
   subscriptions: string[];
@@ -13,20 +18,98 @@ interface UserContextType {
   toastMessage: string | null;
   showToast: (msg: string) => void;
   refreshUserProfile: () => void;
-  updateProfile: (data: Partial<UserProfile>) => void;
-  adjustBalance: (amount: number, title: string, creatorUsername?: string) => void;
-  subscribeToCreator: (creatorUsername: string, price?: number) => void;
-  unsubscribeFromCreator: (creatorUsername: string) => void;
-  toggleBlock: (username: string) => boolean;
-  toggleFavorite: (username: string) => boolean;
+  retryAuthSync: () => void;
+  updateProfile: (data: Partial<UserProfile>) => Promise<boolean>;
+  adjustBalance: (amount: number, title: string, creatorUsername?: string) => Promise<void>;
+  subscribeToCreator: (creatorUsername: string, price?: number) => Promise<boolean>;
+  unsubscribeFromCreator: (creatorUsername: string) => Promise<boolean>;
+  toggleBlock: (username: string) => Promise<boolean>;
+  toggleFavorite: (username: string) => Promise<boolean>;
   markNotificationsAsRead: () => void;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
+type BackendUserProfile = {
+  display_name?: string;
+  displayName?: string;
+  username?: string;
+  bio?: string;
+  avatar?: string;
+  role?: "creator" | "fan";
+  cover_photo?: string;
+  coverPhoto?: string;
+  location?: string;
+  website?: string;
+  email?: string;
+  kyc_verified?: boolean;
+  kycVerified?: boolean;
+  kyc_uploaded?: boolean;
+  kycUploaded?: boolean;
+  kyc_name?: string;
+  kycName?: string;
+  kyc_document_type?: string;
+  kycDocumentType?: string;
+  two_factor?: boolean;
+  twoFactor?: boolean;
+  biometric?: boolean;
+  discount_active?: boolean;
+  discountActive?: boolean;
+  discount_percent?: number;
+  discountPercent?: number;
+  calls_enabled?: boolean;
+  callsEnabled?: boolean;
+  call_rate?: number;
+  callRate?: number;
+  sub_price?: number;
+  subPrice?: number;
+};
+
+type BackendSubscription = {
+  username: string;
+  status: string;
+};
+
+type BackendRelationships = {
+  favorites: string[];
+  blocked: string[];
+};
+
+const normalizeProfile = (profile: BackendUserProfile): UserProfile => ({
+  displayName: profile.displayName || profile.display_name || "Felbic User",
+  username: profile.username || "felbic_user",
+  bio: profile.bio || "",
+  avatar: profile.avatar || "/assets/39bc5c3eed51d62c1022c60686bb459a.png",
+  role: profile.role === "creator" ? "creator" : "fan",
+  coverPhoto: profile.coverPhoto || profile.cover_photo || "/assets/cb15617a79d7713ffa4a6de36f808a76.png",
+  location: profile.location || "",
+  website: profile.website || "",
+  joinedDate: "Joined 2026",
+  email: profile.email || "",
+  kycVerified: profile.kycVerified ?? profile.kyc_verified ?? false,
+  kycUploaded: profile.kycUploaded ?? profile.kyc_uploaded ?? false,
+  kycName: profile.kycName || profile.kyc_name || "",
+  kycDocumentType: profile.kycDocumentType || profile.kyc_document_type || "",
+  twoFactor: profile.twoFactor ?? profile.two_factor ?? false,
+  biometric: profile.biometric ?? true,
+  discountActive: profile.discountActive ?? profile.discount_active ?? false,
+  discountPercent: profile.discountPercent ?? profile.discount_percent ?? 20,
+  callsEnabled: profile.callsEnabled ?? profile.calls_enabled ?? false,
+  callRate: profile.callRate ?? profile.call_rate ?? 5.00,
+  subPrice: profile.subPrice ?? profile.sub_price ?? 9.99,
+});
+
+const getErrorMessage = (err: unknown, fallback: string) => (
+  err instanceof Error ? err.message : fallback
+);
+
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isLoaded: isClerkLoaded, isSignedIn: isClerkSignedIn, user: clerkUser } = useClerkUser();
+
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [walletBalance, setWalletBalance] = useState<number>(450.00);
+  const [authStatus, setAuthStatus] = useState<"checking" | "syncing" | "ready">("checking");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState<number>(0);
   const [subscriptions, setSubscriptions] = useState<string[]>([]);
   const [blockedUsers, setBlockedUsers] = useState<string[]>([]);
@@ -40,48 +123,115 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, 2500);
   };
 
-  const refreshUserProfile = () => {
+  const refreshUserProfile = async () => {
     if (typeof window === 'undefined') return;
     
-    // Initialize mock database if not already
-    mockDb.init();
-    
-    const profile = mockDb.getUserProfile();
-    setUser(prev => {
-      if (prev && JSON.stringify(prev) === JSON.stringify(profile)) return prev;
-      return profile;
-    });
-    
-    const balance = mockDb.getWalletBalance();
-    setWalletBalance(prev => (prev === balance ? prev : balance));
+    const token = localStorage.getItem("ch_token");
+    if (!token) {
+      if (isClerkSignedIn) {
+        setUser(null);
+      } else {
+        setUser(null);
+      }
+      return;
+    }
 
-    const subs = mockDb.getSubscriptions();
-    setSubscriptions(prev => {
-      if (JSON.stringify(prev) === JSON.stringify(subs)) return prev;
-      return subs;
-    });
+    try {
+      const profile = normalizeProfile(await apiClient.get<BackendUserProfile>("/users/profile"));
+      setUser(prev => {
+        if (prev && JSON.stringify(prev) === JSON.stringify(profile)) return prev;
+        return profile;
+      });
 
-    const blocked = mockDb.getBlockedUsers();
-    setBlockedUsers(prev => {
-      if (JSON.stringify(prev) === JSON.stringify(blocked)) return prev;
-      return blocked;
-    });
+      const walletState = await apiClient.get<{ balance: number }>("/wallet");
+      setWalletBalance(walletState.balance);
+      setAuthError(null);
 
-    const favs = mockDb.getFavoriteCreators();
-    setFavoriteCreators(prev => {
-      if (JSON.stringify(prev) === JSON.stringify(favs)) return prev;
-      return favs;
-    });
-    
-    const notifs = mockDb.getNotifications();
-    const unreadCount = notifs.filter(n => !n.read).length;
-    setUnreadNotificationsCount(prev => (prev === unreadCount ? prev : unreadCount));
+      const subs = await apiClient.get<BackendSubscription[]>("/users/subscriptions");
+      setSubscriptions(subs.filter((s) => s.status === "active").map((s) => s.username));
+
+      const relationships = await apiClient.get<BackendRelationships>("/users/relationships");
+      setBlockedUsers(relationships.blocked || []);
+      setFavoriteCreators(relationships.favorites || []);
+
+      const notifs = mockDb.getNotifications();
+      const unreadCount = notifs.filter(n => !n.read).length;
+      setUnreadNotificationsCount(prev => (prev === unreadCount ? prev : unreadCount));
+    } catch (err) {
+      setUser(null);
+      setAuthError(getErrorMessage(err, "Unable to refresh profile from the API."));
+    }
+  };
+
+  const retryAuthSync = async () => {
+    if (!isClerkLoaded || !isClerkSignedIn || !clerkUser) return;
+
+    setAuthStatus("syncing");
+    setAuthError(null);
+
+    const email = clerkUser.primaryEmailAddress?.emailAddress;
+    if (!email) {
+      setAuthError("Clerk account is missing a primary email address.");
+      setAuthStatus("ready");
+      return;
+    }
+
+    const displayName = clerkUser.fullName || clerkUser.username || email.split("@")[0];
+    const avatar = clerkUser.imageUrl || "/assets/39bc5c3eed51d62c1022c60686bb459a.png";
+
+    try {
+      const response = await apiClient.post<{ token: string; user?: BackendUserProfile }>("/auth/clerk-sync", {
+        email,
+        display_name: displayName,
+        avatar
+      });
+
+      localStorage.setItem("ch_token", response.token);
+      localStorage.setItem("ch_onboarding_done", "true");
+      localStorage.removeItem("ch_logged_out");
+      localStorage.removeItem("ch_backend_unavailable");
+
+      if (response.user) {
+        setUser(normalizeProfile(response.user));
+      }
+
+      await refreshUserProfile();
+    } catch (err) {
+      localStorage.removeItem("ch_token");
+      localStorage.removeItem("ch_backend_unavailable");
+      localStorage.removeItem("ch_logged_out");
+      setUser(null);
+      setWalletBalance(0);
+      setBlockedUsers([]);
+      setFavoriteCreators([]);
+      setSubscriptions([]);
+      setAuthError(getErrorMessage(err, "Unable to sync Clerk session with the Supabase-backed API."));
+    } finally {
+      setAuthStatus("ready");
+    }
   };
 
   useEffect(() => {
-    setTimeout(() => {
-      refreshUserProfile();
+    if (!isClerkLoaded) return;
+
+    if (!isClerkSignedIn) {
+      localStorage.removeItem("ch_token");
+      localStorage.removeItem("ch_backend_unavailable");
+      localStorage.setItem("ch_logged_out", "true");
+      window.setTimeout(() => {
+        setUser(null);
+        setAuthError(null);
+        setAuthStatus("ready");
+      }, 0);
+      return;
+    }
+
+    window.setTimeout(() => {
+      retryAuthSync();
     }, 0);
+  }, [isClerkLoaded, isClerkSignedIn, clerkUser]);
+
+  useEffect(() => {
 
     // Event listeners for cross-component synchronizations
     const handleProfileUpdate = () => refreshUserProfile();
@@ -90,11 +240,9 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       refreshUserProfile();
     };
     const handleSubscriptionsUpdate = () => {
-      setSubscriptions(mockDb.getSubscriptions());
       refreshUserProfile();
     };
     const handleBlockedUsersUpdate = () => {
-      setBlockedUsers(mockDb.getBlockedUsers());
       refreshUserProfile();
     };
     const handleNotifsUpdate = () => {
@@ -126,49 +274,134 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const updateProfile = (data: Partial<UserProfile>) => {
-    mockDb.setUserProfile(data);
-    refreshUserProfile();
+  const updateProfile = async (data: Partial<UserProfile>): Promise<boolean> => {
+    if (!user) {
+      showToast("Profile is not loaded yet");
+      return false;
+    }
+
+    const nextProfile = { ...user, ...data };
+    const payload = {
+      username: nextProfile.username,
+      display_name: nextProfile.displayName,
+      bio: nextProfile.bio,
+      avatar: nextProfile.avatar,
+      cover_photo: nextProfile.coverPhoto,
+      location: nextProfile.location,
+      website: nextProfile.website,
+      role: nextProfile.role,
+      sub_price: nextProfile.subPrice,
+    };
+
+    try {
+      await apiClient.put("/users/profile", payload);
+      await refreshUserProfile();
+      return true;
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err, "Profile update failed on the API."));
+      return false;
+    }
   };
 
-  const adjustBalance = (amount: number, title: string, creatorUsername = "") => {
-    mockDb.adjustWalletBalance(amount, title, creatorUsername);
-    setWalletBalance(mockDb.getWalletBalance());
+  const adjustBalance = async (amount: number, title: string, creatorUsername = "") => {
+    try {
+      if (amount > 0) {
+        const res = await apiClient.post<{ balance: number }>("/wallet/deposit", { amount });
+        setWalletBalance(res.balance);
+        showToast(`Deposited ₹${amount.toFixed(2)} successfully!`);
+      } else {
+        const tipAmt = Math.abs(amount);
+        const res = await apiClient.post<{ balance: number }>("/wallet/tip", {
+          creator_id: creatorUsername,
+          amount: tipAmt,
+          message: title,
+        });
+        setWalletBalance(res.balance);
+        showToast(`Tipped ₹${tipAmt.toFixed(2)} to @${creatorUsername}!`);
+      }
+      await refreshUserProfile();
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err, "Wallet transaction failed on the API."));
+    }
   };
 
-  const subscribeToCreator = (creatorUsername: string, price = 0) => {
-    mockDb.subscribe(creatorUsername, price);
-    setSubscriptions(mockDb.getSubscriptions());
-    setWalletBalance(mockDb.getWalletBalance());
+  const subscribeToCreator = async (creatorUsername: string, _price = 0): Promise<boolean> => {
+    void _price;
+    try {
+      const res = await apiClient.post<{ balance: number }>("/wallet/subscribe", {
+        creator_id: creatorUsername,
+      });
+      setWalletBalance(res.balance);
+      await refreshUserProfile();
+      showToast(`Successfully subscribed to @${creatorUsername}!`);
+      return true;
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err, "Subscription failed on the API."));
+      return false;
+    }
   };
 
-  const unsubscribeFromCreator = (creatorUsername: string) => {
-    mockDb.unsubscribe(creatorUsername);
-    setSubscriptions(mockDb.getSubscriptions());
+
+  const unsubscribeFromCreator = async (creatorUsername: string): Promise<boolean> => {
+    try {
+      await apiClient.delete(`/wallet/subscribe/${creatorUsername}`);
+      await refreshUserProfile();
+      showToast(`Cancelled subscription to @${creatorUsername}`);
+      return true;
+    } catch (err) {
+      showToast(getErrorMessage(err, "Failed to cancel subscription"));
+      return false;
+    }
   };
 
-  const toggleBlock = (username: string): boolean => {
-    const res = mockDb.toggleBlockUser(username);
-    setBlockedUsers(mockDb.getBlockedUsers());
-    setSubscriptions(mockDb.getSubscriptions());
-    return res;
+  const toggleBlock = async (username: string): Promise<boolean> => {
+    try {
+      const res = await apiClient.post<{ is_blocked: boolean }>(`/users/blocks/${username}`);
+      setBlockedUsers((prev) => (
+        res.is_blocked
+          ? Array.from(new Set([...prev, username]))
+          : prev.filter((u) => u !== username)
+      ));
+      window.dispatchEvent(new CustomEvent("ch_blocked_users_updated", { detail: { username } }));
+      return res.is_blocked;
+    } catch (err) {
+      showToast(getErrorMessage(err, "Failed to update block list"));
+      return blockedUsers.includes(username);
+    }
   };
 
-  const toggleFavorite = (username: string): boolean => {
-    const res = mockDb.toggleFavoriteCreator(username);
-    setFavoriteCreators(mockDb.getFavoriteCreators());
-    return res;
+  const toggleFavorite = async (username: string): Promise<boolean> => {
+    try {
+      const res = await apiClient.post<{ is_favorite: boolean }>(`/users/favorites/${username}`);
+      setFavoriteCreators((prev) => (
+        res.is_favorite
+          ? Array.from(new Set([...prev, username]))
+          : prev.filter((u) => u !== username)
+      ));
+      window.dispatchEvent(new CustomEvent("ch_favorite_creators_updated", { detail: { username, isFavorite: res.is_favorite } }));
+      return res.is_favorite;
+    } catch (err) {
+      showToast(getErrorMessage(err, "Failed to update favorites"));
+      return favoriteCreators.includes(username);
+    }
   };
 
-  const markNotificationsAsRead = () => {
-    mockDb.markNotificationsRead();
-    setUnreadNotificationsCount(0);
+  const markNotificationsAsRead = async () => {
+    try {
+      await apiClient.post("/notifications/read");
+      setUnreadNotificationsCount(0);
+    } catch (err) {
+      console.error("Failed to mark notifications read on server:", err);
+    }
   };
+
 
   return (
     <UserContext.Provider
       value={{
         user,
+        authStatus,
+        authError,
         walletBalance,
         unreadNotificationsCount,
         subscriptions,
@@ -177,6 +410,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         toastMessage,
         showToast,
         refreshUserProfile,
+        retryAuthSync,
         updateProfile,
         adjustBalance,
         subscribeToCreator,

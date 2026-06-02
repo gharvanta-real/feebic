@@ -4,12 +4,14 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import { MobileHeader } from "@/components/layout/MobileHeader";
-import { mockDb, Creator } from "@/lib/mockDb";
+import type { Creator } from "@/lib/mockDb";
 import { useUser } from "@/context/UserContext";
 import { VerifiedBadge } from "@/components/ui/VerifiedBadge";
+import { apiClient } from "@/lib/apiClient";
+import { RoleGuard } from "@/components/layout/RoleGuard";
 
 export default function ExplorePage() {
-  const { subscriptions, subscribeToCreator } = useUser();
+  const { subscriptions, showToast } = useUser();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
   const [creators, setCreators] = useState<Creator[]>([]);
@@ -17,10 +19,33 @@ export default function ExplorePage() {
   const categories = ["All", "Lifestyle", "Photography", "Cosplay", "Art", "Fitness"];
 
   useEffect(() => {
-    const creatorsData = mockDb.getCreators();
-    setTimeout(() => {
-      setCreators(Object.values(creatorsData));
-    }, 0);
+    const fetchCreators = async () => {
+      try {
+        const data = await apiClient.get<any[]>("/users/creators");
+        setCreators(data.map((creator) => ({
+          name: creator.display_name || creator.displayName || creator.name || "Felbic Creator",
+          username: creator.username,
+          avatar: creator.avatar || "/assets/39bc5c3eed51d62c1022c60686bb459a.png",
+          cover: creator.cover_photo || creator.coverPhoto || creator.cover || "/assets/cb15617a79d7713ffa4a6de36f808a76.png",
+          bio: creator.bio || "",
+          location: creator.location || "",
+          website: creator.website || "",
+          likes: String(creator.likes_count || creator.likes || 0),
+          subPrice: creator.sub_price || creator.subPrice || 0,
+          verified: true,
+          tag: creator.tag || "Creator",
+          fansCount: String(creator.fans_count || 0),
+          postsCount: String(creator.posts_count || 0),
+          photosCount: String(creator.photos_count || 0),
+          videosCount: String(creator.videos_count || 0),
+        })));
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Failed to load creators");
+        setCreators([]);
+      }
+    };
+
+    fetchCreators();
   }, []);
 
   // Filter creators dynamically by search query and category
@@ -36,7 +61,8 @@ export default function ExplorePage() {
   });
 
   return (
-    <AppShell>
+    <RoleGuard allowedRoles={["fan"]}>
+      <AppShell>
       {/* 1. Mobile Header */}
       <MobileHeader>
         <span className="text-sm font-bold text-text-muted mr-1 select-none">Explore</span>
@@ -213,6 +239,7 @@ export default function ExplorePage() {
             )}
           </div>
       </div>
-    </AppShell>
+      </AppShell>
+    </RoleGuard>
   );
 }

@@ -3,21 +3,20 @@
 import React, { useState, useEffect } from "react";
 import { useUser } from "@/context/UserContext";
 import { useRouter } from "next/navigation";
+import { apiClient } from "@/lib/apiClient";
 
 export default function EmailSettingsPage() {
   const router = useRouter();
-  const { showToast } = useUser();
+  const { showToast, user, refreshUserProfile } = useUser();
   const [email, setEmail] = useState("");
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setTimeout(() => {
-        setEmail(localStorage.getItem("ch_user_email") || "alex.rivera@creatorhub.com");
-      }, 0);
+    if (user && user.email) {
+      setEmail(user.email);
     }
-  }, []);
+  }, [user]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const clean = email.trim().toLowerCase();
 
@@ -26,11 +25,16 @@ export default function EmailSettingsPage() {
       return;
     }
 
-    localStorage.setItem("ch_user_email", clean);
-    showToast("Email updated. Verification pending link sent!");
-    setTimeout(() => {
-      router.push("/settings");
-    }, 600);
+    try {
+      await apiClient.put("/users/profile", { email: clean });
+      showToast("Email updated. Verification pending link sent!");
+      refreshUserProfile();
+      setTimeout(() => {
+        router.push("/settings");
+      }, 600);
+    } catch (err: any) {
+      showToast(err.message || "Failed to update email");
+    }
   };
 
   return (

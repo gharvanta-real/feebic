@@ -68,10 +68,21 @@ export interface ChatMessage {
 
 export interface Transaction {
   id: string;
-  type: 'tip' | 'withdrawal' | 'subscription' | 'funds';
+  type: 'tip' | 'withdrawal' | 'subscription' | 'funds' | 'unlock' | 'fundraiser';
   title: string;
   subtitle: string;
   amount: number;
+}
+
+export interface CreatorLedgerEntry {
+  id: string;
+  creatorUsername: string;
+  type: 'tip' | 'subscription' | 'unlock' | 'fundraiser';
+  title: string;
+  amount: number;
+  postId?: string;
+  fanUsername: string;
+  createdAt: string;
 }
 
 export interface UserProfile {
@@ -84,6 +95,18 @@ export interface UserProfile {
   location: string;
   website: string;
   joinedDate: string;
+  email?: string;
+  kycVerified?: boolean;
+  kycUploaded?: boolean;
+  kycName?: string;
+  kycDocumentType?: string;
+  twoFactor?: boolean;
+  biometric?: boolean;
+  discountActive?: boolean;
+  discountPercent?: number;
+  callsEnabled?: boolean;
+  callRate?: number;
+  subPrice?: number;
 }
 
 export interface StorySlide {
@@ -501,6 +524,10 @@ class MockDatabase {
       localStorage.setItem("ch_transactions", JSON.stringify(DEFAULT_TRANSACTIONS));
     }
 
+    if (!localStorage.getItem("ch_creator_ledger")) {
+      localStorage.setItem("ch_creator_ledger", JSON.stringify([]));
+    }
+
     if (!localStorage.getItem("ch_linked_cards")) {
       const DEFAULT_CARDS = [
         { id: "card_1", holder: "Alex Rivera", number: "4111 2222 3333 4444", expiry: "12/29", isDefault: true }
@@ -838,7 +865,53 @@ class MockDatabase {
     return JSON.parse(this.getItem("ch_transactions", "[]"));
   }
 
-  adjustWalletBalance(amount: number, title: string, creatorUsername: string = ""): number {
+  getCreatorLedger(): CreatorLedgerEntry[] {
+    return JSON.parse(this.getItem("ch_creator_ledger", "[]"));
+  }
+
+  recordCreatorLedger(
+    creatorUsername: string,
+    type: CreatorLedgerEntry["type"],
+    amount: number,
+    title: string,
+    postId?: string
+  ) {
+    const cleanUsername = creatorUsername.replace("@", "");
+    if (!cleanUsername || amount <= 0) return;
+
+    const ledger = this.getCreatorLedger();
+    ledger.unshift({
+      id: "ledger_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+      creatorUsername: cleanUsername,
+      type,
+      title,
+      amount: parseFloat(amount.toFixed(2)),
+      postId,
+      fanUsername: this.getItem("ch_user_username", "arivera"),
+      createdAt: new Date().toISOString(),
+    });
+    this.setItem("ch_creator_ledger", JSON.stringify(ledger));
+
+    const currentEarnings = parseFloat(this.getItem("ch_earnings", "14280.50")) || 14280.50;
+    this.setItem("ch_earnings", (currentEarnings + amount).toFixed(2));
+    this.notify("ch_creator_analytics_updated", { creatorUsername: cleanUsername, amount, type, postId });
+  }
+
+  recordCardCheckout(title: string, amount: number, creatorUsername = "") {
+    const transactions = this.getTransactions();
+    const cleanUsername = creatorUsername ? creatorUsername.replace("@", "") : "";
+    transactions.unshift({
+      id: "tx_" + Date.now(),
+      type: title.toLowerCase().includes("sub") ? "subscription" : title.toLowerCase().includes("unlock") ? "unlock" : "tip",
+      title: `${title} via Card Checkout`,
+      subtitle: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + (cleanUsername ? ` â€¢ @${cleanUsername}` : ""),
+      amount: 0
+    });
+    this.setItem("ch_transactions", JSON.stringify(transactions));
+    this.notify("ch_wallet_updated", { balance: this.getWalletBalance(), transaction: transactions[0] });
+  }
+
+  adjustWalletBalance(amount: number, title: string, creatorUsername: string = "", postId?: string): number {
     const current = this.getWalletBalance();
     const updated = Math.max(0, current + amount);
     this.setItem("ch_wallet_balance", updated.toFixed(2));
@@ -847,13 +920,25 @@ class MockDatabase {
     const cleanUsername = creatorUsername ? creatorUsername.replace("@", "") : "";
     const tx: Transaction = {
       id: "tx_" + Date.now(),
-      type: amount < 0 ? (title.toLowerCase().includes("sub") ? "subscription" : "tip") : 'funds',
+      type: amount < 0
+        ? title.toLowerCase().includes("sub")
+          ? "subscription"
+          : title.toLowerCase().includes("unlock")
+            ? "unlock"
+            : title.toLowerCase().includes("fundraiser") || title.toLowerCase().includes("contribution")
+              ? "fundraiser"
+              : "tip"
+        : 'funds',
       title: title,
       subtitle: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + (cleanUsername ? ` • @${cleanUsername}` : ""),
       amount: amount
     };
     transactions.unshift(tx);
     this.setItem("ch_transactions", JSON.stringify(transactions));
+    if (amount < 0 && cleanUsername) {
+      const ledgerType = tx.type === "subscription" || tx.type === "unlock" || tx.type === "fundraiser" ? tx.type : "tip";
+      this.recordCreatorLedger(cleanUsername, ledgerType, Math.abs(amount), title, postId);
+    }
     this.notify("ch_wallet_updated", { balance: updated, transaction: tx });
     return updated;
   }
@@ -928,16 +1013,20 @@ class MockDatabase {
     return unlocked.includes(id);
   }
 
-  unlockContent(id: string, price: number) {
+  unlockContent(id: string, price: number, chargeWallet = true) {
     const unlocked: string[] = JSON.parse(this.getItem("ch_unlocked", "[]"));
     if (!unlocked.includes(id)) {
       unlocked.push(id);
       this.setItem("ch_unlocked", JSON.stringify(unlocked));
 
-      this.adjustWalletBalance(-price, `Unlock Premium Content`, "");
-
-      const currentEarnings = parseFloat(this.getItem("ch_earnings", "14280.50"));
-      this.setItem("ch_earnings", (currentEarnings + price).toFixed(2));
+      const post = this.getPosts(true).find(p => p.id === id);
+      const creatorUsername = post?.creatorUsername || "";
+      if (chargeWallet) {
+        this.adjustWalletBalance(-price, `Unlock Premium Content`, creatorUsername, id);
+      } else {
+        this.recordCardCheckout("Unlock Premium Content", price, creatorUsername);
+        this.recordCreatorLedger(creatorUsername, "unlock", price, `Unlock Premium Content`, id);
+      }
       this.notify("ch_content_unlocked", { id });
     }
   }
@@ -1271,12 +1360,65 @@ class MockDatabase {
     if (post && post.fundraiser) {
       if (isNaN(amount) || amount <= 0) return;
       
-      this.adjustWalletBalance(-amount, `Contribution to @${post.creatorUsername}'s fundraiser`, post.creatorUsername);
+      this.adjustWalletBalance(-amount, `Contribution to @${post.creatorUsername}'s fundraiser`, post.creatorUsername, postId);
       
       post.fundraiser.current = parseFloat((post.fundraiser.current + amount).toFixed(2));
       this.setItem("ch_posts", JSON.stringify(posts));
       this.notify("ch_posts_updated", { postId });
     }
+  }
+
+  getCreatorAnalytics(username: string) {
+    const cleanUsername = username.replace("@", "");
+    const posts = this.getPosts(true).filter(p => p.creatorUsername === cleanUsername);
+    const ledger = this.getCreatorLedger().filter(entry => entry.creatorUsername === cleanUsername);
+    const totalEarnings = ledger.reduce((sum, entry) => sum + entry.amount, 0);
+    const directTips = ledger
+      .filter(entry => entry.type === "tip" || entry.type === "fundraiser")
+      .reduce((sum, entry) => sum + entry.amount, 0);
+    const totalLikes = posts.reduce((sum, post) => sum + (post.likes || 0), 0);
+    const totalComments = posts.reduce((sum, post) => sum + (post.commentsCount || 0), 0);
+
+    const earningsByPost = posts
+      .map(post => ({
+        id: post.id,
+        title: post.content.split("\n")[0].slice(0, 80) || "Untitled post",
+        earnings: ledger
+          .filter(entry => entry.postId === post.id)
+          .reduce((sum, entry) => sum + entry.amount, 0),
+        likes: post.likes || 0,
+        comments: post.commentsCount || 0,
+        type: post.mediaType || "image",
+      }))
+      .sort((a, b) => (b.earnings - a.earnings) || (b.likes - a.likes))
+      .slice(0, 5);
+
+    const supportersMap = new Map<string, number>();
+    ledger.forEach(entry => {
+      supportersMap.set(entry.fanUsername, (supportersMap.get(entry.fanUsername) || 0) + entry.amount);
+    });
+
+    const topSupporters = Array.from(supportersMap.entries())
+      .map(([fanUsername, totalContributed]) => ({
+        username: fanUsername,
+        name: fanUsername === this.getItem("ch_user_username", "arivera") ? this.getItem("ch_user_display_name", "Alex Rivera") : fanUsername,
+        avatar: fanUsername === this.getItem("ch_user_username", "arivera") ? this.getItem("ch_user_avatar", "/assets/5dc72593d711173af1fe7ab74be0fa56.png") : "/assets/39bc5c3eed51d62c1022c60686bb459a.png",
+        totalContributed,
+        joinedDate: "Active fan",
+      }))
+      .sort((a, b) => b.totalContributed - a.totalContributed)
+      .slice(0, 5);
+
+    return {
+      totalEarnings,
+      directTips,
+      subscribers: parseInt(this.getItem("ch_subscribers", "0")) || 0,
+      postCount: posts.length,
+      totalLikes,
+      totalComments,
+      topPosts: earningsByPost,
+      topSupporters,
+    };
   }
 
   // Mass DMs / Broadcast Messaging API

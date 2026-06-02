@@ -7,7 +7,7 @@ export default function BlockedUsersPage() {
   const { user, blockedUsers, toggleBlock, showToast } = useUser();
   const [inputVal, setInputVal] = useState("");
 
-  const handleBlock = (e: React.FormEvent) => {
+  const handleBlock = async (e: React.FormEvent) => {
     e.preventDefault();
     const clean = inputVal.trim().toLowerCase().replace(/^@/, "").replace(/[^a-z0-9_]/g, "");
 
@@ -26,13 +26,13 @@ export default function BlockedUsersPage() {
       return;
     }
 
-    toggleBlock(clean);
+    await toggleBlock(clean);
     setInputVal("");
     showToast(`Restricted @${clean}`);
   };
 
-  const handleUnblock = (username: string) => {
-    toggleBlock(username);
+  const handleUnblock = async (username: string) => {
+    await toggleBlock(username);
     showToast(`Removed restriction for @${username}`);
   };
 

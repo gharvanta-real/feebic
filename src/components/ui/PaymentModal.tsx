@@ -1,15 +1,17 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useUser } from "@/context/UserContext";
 import { Modal } from "./Modal";
+
+type PaymentSource = "wallet" | "card";
 
 interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
   price: number;
-  onConfirm: (tipMessage?: string) => void;
+  onConfirm: (tipMessage?: string, paymentSource?: PaymentSource) => void;
 }
 
 export const PaymentModal: React.FC<PaymentModalProps> = ({
@@ -19,15 +21,68 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   price,
   onConfirm
 }) => {
-  const { walletBalance, adjustBalance } = useUser();
+  const { walletBalance, showToast } = useUser();
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
   const [tipMessage, setTipMessage] = useState("");
   
+  // UPI states for insufficient funds backup
+  const [selectedUpiApp, setSelectedUpiApp] = useState<"gpay" | "phonepe" | "paytm" | "qr">("gpay");
+  const [upiId, setUpiId] = useState("alex@okaxis");
+  const [upiValidationError, setUpiValidationError] = useState("");
+
   const isSufficientFunds = walletBalance >= price;
+
+
+
+  const handleUpiAppSelect = (app: "gpay" | "phonepe" | "paytm" | "qr") => {
+    setSelectedUpiApp(app);
+    if (app === "gpay") {
+      setUpiId("alex@okaxis");
+      setUpiValidationError("");
+    } else if (app === "phonepe") {
+      setUpiId("alex@ybl");
+      setUpiValidationError("");
+    } else if (app === "paytm") {
+      setUpiId("alex@paytm");
+      setUpiValidationError("");
+    } else {
+      setUpiId("");
+      setUpiValidationError("");
+    }
+  };
+
+  const validateUpi = (id: string) => {
+    if (!id) return "UPI ID is required";
+    const pattern = /^[\w.-]+@[\w.-]+$/;
+    if (!pattern.test(id)) {
+      return "Invalid UPI ID format (e.g. username@okaxis)";
+    }
+    return "";
+  };
+
+  const handleUpiIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setUpiId(val);
+    if (val) {
+      setUpiValidationError(validateUpi(val));
+    } else {
+      setUpiValidationError("");
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!isSufficientFunds && selectedUpiApp !== "qr") {
+      const err = validateUpi(upiId);
+      if (err) {
+        setUpiValidationError(err);
+        showToast(err);
+        return;
+      }
+    }
+
     setIsProcessing(true);
 
     // Simulate secure platform payment processing
@@ -38,15 +93,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       setTimeout(() => {
         setIsCompleted(false);
         onClose();
-        
-        if (isSufficientFunds) {
-          adjustBalance(-price, title);
-        } else {
-          // If insufficient balance, simulate billing their card
-          adjustBalance(0, `${title} via Card Checkout`);
-        }
-        
-        onConfirm(tipMessage);
+        onConfirm(tipMessage, isSufficientFunds ? "wallet" : "card");
       }, 1000);
     }, 1500);
   };
@@ -61,15 +108,15 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               <p className="text-xs font-bold text-text-muted">Available Wallet Balance</p>
               <p className="text-xs text-success font-semibold">Sufficient funds available</p>
             </div>
-            <p className="text-lg font-bold text-success">${walletBalance.toFixed(2)}</p>
+            <p className="text-lg font-bold text-success">₹{walletBalance.toFixed(2)}</p>
           </div>
         ) : (
           <div className="bg-[hsl(var(--accent-hsl)/0.08)] border border-[hsl(var(--accent-hsl)/0.2)] p-4 rounded-xl flex gap-3 items-start select-none">
-            <span className="material-symbols-outlined text-accent text-[20px]">warning</span>
+            <span className="material-symbols-outlined text-accent text-[20px] shrink-0">warning</span>
             <div>
               <p className="font-bold text-[12px] text-accent mb-0.5 leading-none">Insufficient Balance</p>
               <p className="text-[11px] text-text-muted leading-relaxed">
-                Your balance is ${walletBalance.toFixed(2)}. Please complete payment using your card details below to cover the checkout fee.
+                Your balance is ₹{walletBalance.toFixed(2)}. Please complete payment using our sleek, instant UPI payment portal below to complete this checkout.
               </p>
             </div>
           </div>
@@ -81,7 +128,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             <p className="text-sm font-bold text-text-main">{title}</p>
             <p className="text-xs text-text-muted">Secure transaction checkout</p>
           </div>
-          <p className="text-lg font-bold text-primary">${price.toFixed(2)}</p>
+          <p className="text-lg font-bold text-primary">₹{price.toFixed(2)}</p>
         </div>
 
         {/* Dynamic Billing Form */}
@@ -103,64 +150,80 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             </div>
           )}
 
-          {/* Simulated Card Inputs if balance is insufficient */}
+          {/* Sleek Instant UPI Backup Form if balance is insufficient */}
           {!isSufficientFunds && (
-            <div className="space-y-3 animate-fade-in">
-              <div>
-                <label className="block text-xs font-bold text-text-muted mb-1.5 ml-1">Cardholder Name</label>
-                <input
-                  type="text"
-                  required
-                  defaultValue="Alex Rivera"
-                  className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:border-primary transition-all text-sm outline-none"
-                  disabled={isProcessing}
-                />
+            <div className="space-y-3 border-t border-border/60 pt-4 animate-fade-in">
+              <p className="text-[10px] font-black uppercase tracking-wider text-text-muted select-none">
+                Select UPI Payment Option
+              </p>
+              
+              {/* Quick Select Apps buttons */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 select-none">
+                {([
+                  { id: "gpay", label: "Google Pay", icon: "sports_kabaddi" },
+                  { id: "phonepe", label: "PhonePe", icon: "account_balance" },
+                  { id: "paytm", label: "Paytm", icon: "payment" },
+                  { id: "qr", label: "UPI QR Code", icon: "qr_code_2" }
+                ] as const).map((app) => (
+                  <button
+                    key={app.id}
+                    type="button"
+                    onClick={() => handleUpiAppSelect(app.id)}
+                    disabled={isProcessing}
+                    className={`flex items-center justify-center gap-1 py-2 px-1 rounded-xl border text-[10px] font-black uppercase transition-all cursor-pointer ${
+                      selectedUpiApp === app.id
+                        ? "bg-primary/10 border-primary/30 text-primary"
+                        : "bg-background border-border text-text-muted hover:border-text-muted"
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[14px] leading-none">{app.icon}</span>
+                    <span>{app.label}</span>
+                  </button>
+                ))}
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-text-muted mb-1.5 ml-1">Card Number</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="4111 2222 3333 4444"
-                  defaultValue="4111 2222 3333 4444"
-                  maxLength={19}
-                  className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:border-primary transition-all text-sm outline-none"
-                  disabled={isProcessing}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-text-muted mb-1.5 ml-1">Expiry Date</label>
+              {selectedUpiApp === "qr" ? (
+                /* Sleek checkout QR Code scanner mockup */
+                <div className="bg-background border border-border/80 rounded-xl p-3 flex flex-col items-center justify-center space-y-2 select-none animate-fade-in">
+                  <div className="relative p-2 bg-white rounded-lg border-2 border-primary/20 shadow-sm flex items-center justify-center">
+                    <div className="h-28 w-28 bg-slate-100 rounded flex flex-col items-center justify-center border border-slate-200/50">
+                      <span className="material-symbols-outlined text-[62px] text-slate-700">qr_code_2</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-text-muted font-bold text-center">
+                    Scan & Pay ₹{price.toFixed(2)} with GPay, PhonePe, Paytm, or BHIM
+                  </p>
+                </div>
+              ) : (
+                /* UPI ID Text Input */
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-text-muted ml-1 select-none">UPI Address ID</label>
                   <input
                     type="text"
                     required
-                    placeholder="MM/YY"
-                    defaultValue="12/28"
-                    className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:border-primary transition-all text-sm outline-none"
+                    value={upiId}
+                    onChange={handleUpiIdChange}
                     disabled={isProcessing}
+                    placeholder="example@upi"
+                    className={`w-full px-4 py-2.5 bg-background border rounded-xl focus:border-primary transition-all text-sm font-semibold outline-none text-text-main ${
+                      upiValidationError ? "border-red-500" : "border-border"
+                    }`}
                   />
+                  {upiValidationError && (
+                    <p className="text-[10px] text-red-500 font-bold ml-1 flex items-center gap-1 select-none animate-pulse">
+                      <span className="material-symbols-outlined text-[12px] leading-none">warning</span>
+                      <span>{upiValidationError}</span>
+                    </p>
+                  )}
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-text-muted mb-1.5 ml-1">CVV</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="321"
-                    defaultValue="123"
-                    className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:border-primary transition-all text-sm outline-none"
-                    disabled={isProcessing}
-                  />
-                </div>
-              </div>
+              )}
             </div>
           )}
 
           {/* Action Trigger Button */}
           <button
             type="submit"
-            disabled={isProcessing || isCompleted}
+            disabled={isProcessing || isCompleted || (!isSufficientFunds && selectedUpiApp !== "qr" && !!upiValidationError)}
             className={`w-full mt-4 py-3 rounded-full font-bold flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98] cursor-pointer ${
               isCompleted
                 ? "bg-success text-white"
@@ -180,7 +243,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             ) : (
               <>
                 <span className="material-symbols-outlined text-[20px]">lock</span>
-                <span>{isSufficientFunds ? "Confirm Purchase" : "Pay with Card"}</span>
+                <span>
+                  {isSufficientFunds 
+                    ? "Confirm Purchase" 
+                    : selectedUpiApp === "qr" 
+                      ? "I Have Paid & Scanned" 
+                      : `Pay ₹${price.toFixed(2)} via UPI`
+                  }
+                </span>
               </>
             )}
           </button>

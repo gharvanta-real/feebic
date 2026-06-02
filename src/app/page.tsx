@@ -1,18 +1,71 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { RightPanel } from "@/components/layout/RightPanel";
 import { MobileHeader } from "@/components/layout/MobileHeader";
 import { StorySlider } from "@/components/features/StorySlider";
 import { PostCard } from "@/components/features/PostCard";
-import { mockDb, Post } from "@/lib/mockDb";
+import type { Post } from "@/lib/mockDb";
 import { useUser } from "@/context/UserContext";
 import { Modal } from "@/components/ui/Modal";
+import { apiClient } from "@/lib/apiClient";
+
+type BackendPost = Partial<Post> & {
+  creator_username?: string;
+  creator_name?: string;
+  creator_avatar?: string;
+  media_url?: string;
+  media_urls?: string[];
+  media_type?: string;
+  is_premium?: boolean;
+  comments_count?: number;
+  is_liked?: boolean;
+  is_bookmarked?: boolean;
+  is_unlocked?: boolean;
+  reposted_from_id?: string | null;
+  reposted_by?: string | null;
+  isLiked?: boolean;
+  isBookmarked?: boolean;
+  isUnlocked?: boolean;
+  created_at?: string;
+};
+
+const normalizePost = (post: BackendPost, index: number): Post => {
+  const mediaUrls = post.mediaUrls || post.media_urls || [];
+  const createdAt = post.created_at ? new Date(post.created_at) : null;
+
+  return {
+    id: post.id || `post-fallback-${index}`,
+    creatorUsername: post.creatorUsername || post.creator_username || "",
+    creatorName: post.creatorName || post.creator_name || "Felbic Creator",
+    creatorAvatar: post.creatorAvatar || post.creator_avatar || "/assets/39bc5c3eed51d62c1022c60686bb459a.png",
+    isPinned: post.isPinned || false,
+    mediaUrl: post.mediaUrl || post.media_url || mediaUrls[0] || "",
+    mediaUrls,
+    mediaType: post.mediaType || post.media_type || "image",
+    content: post.content || "",
+    likes: post.likes || 0,
+    commentsCount: post.commentsCount || post.comments_count || 0,
+    time: post.time || (createdAt ? createdAt.toLocaleDateString() : "Just now"),
+    isPremium: post.isPremium || post.is_premium || false,
+    price: post.price || 0,
+    poll: post.poll || null,
+    fundraiser: post.fundraiser || null,
+    publishAt: post.publishAt || null,
+    repostedFromId: post.repostedFromId || post.reposted_from_id || null,
+    repostedBy: post.repostedBy || post.reposted_by || null,
+    isLiked: post.isLiked || post.is_liked || false,
+    isBookmarked: post.isBookmarked || post.is_bookmarked || false,
+    isUnlocked: post.isUnlocked || post.is_unlocked || false,
+  } as Post;
+};
 
 export default function HomeFeedPage() {
-  const { subscriptions, refreshUserProfile } = useUser();
+  const { subscriptions, walletBalance, user } = useUser();
   const [posts, setPosts] = useState<Post[]>([]);
+  const [feedError, setFeedError] = useState<string | null>(null);
+
   const [activeTab, setActiveTab] = useState<"For You" | "Following" | "Subscription" | "Trending">("For You");
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -26,62 +79,71 @@ export default function HomeFeedPage() {
     ? "Default"
     : `${filterType === "all" ? "All" : filterType} • ${sortBy}`;
 
-  const fetchFeedPosts = () => {
-    const allPosts = mockDb.getPosts();
-    const blocked = mockDb.getBlockedUsers();
-    
-    // Filter out blocked creators
-    let filtered = allPosts.filter((p) => !blocked.includes(p.creatorUsername));
+  const fetchFeedPosts = useCallback(async () => {
+    try {
+      const allPosts = (await apiClient.get<BackendPost[]>("/posts")).map((post, idx) => normalizePost(post, idx));
+      let filtered = allPosts;
 
-    // Handle search filtering if active
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (p) =>
-          p.content.toLowerCase().includes(q) ||
-          p.creatorName.toLowerCase().includes(q) ||
-          p.creatorUsername.toLowerCase().includes(q)
-      );
+      // Handle search filtering if active
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        filtered = filtered.filter(
+          (p) =>
+            p.content.toLowerCase().includes(q) ||
+            p.creatorName.toLowerCase().includes(q) ||
+            p.creatorUsername.toLowerCase().includes(q)
+        );
+      }
+
+      // Handle sub-tab filtering
+      if (activeTab === "Following") {
+        filtered = filtered.filter((p) => subscriptions.includes(p.creatorUsername));
+      } else if (activeTab === "Subscription") {
+        filtered = filtered.filter((p) => p.isPremium);
+      } else if (activeTab === "Trending") {
+        // Sort by likes descending
+        filtered = [...filtered].sort((a, b) => b.likes - a.likes);
+      }
+
+      // Custom Category/Type filtering (via tune modal)
+      if (filterType === "photos") {
+        filtered = filtered.filter(p => p.mediaType === "image");
+      } else if (filterType === "videos") {
+        filtered = filtered.filter(p => p.mediaType === "video");
+      } else if (filterType === "polls") {
+        filtered = filtered.filter(p => p.poll !== null && p.poll !== undefined);
+      } else if (filterType === "fundraisers") {
+        filtered = filtered.filter(p => p.fundraiser !== null && p.fundraiser !== undefined);
+      }
+
+      // Custom Sorting (via tune modal)
+      if (sortBy === "likes") {
+        filtered = [...filtered].sort((a, b) => b.likes - a.likes);
+      } else if (sortBy === "comments") {
+        filtered = [...filtered].sort((a, b) => b.commentsCount - a.commentsCount);
+      }
+
+      setFeedError(null);
+      setPosts(filtered);
+    } catch (err) {
+      setPosts([]);
+      setFeedError(err instanceof Error ? err.message : "Unable to load posts from the API.");
     }
+  }, [activeTab, filterType, searchQuery, sortBy, subscriptions]);
 
-    // Handle sub-tab filtering
-    if (activeTab === "Following") {
-      filtered = filtered.filter((p) => subscriptions.includes(p.creatorUsername));
-    } else if (activeTab === "Subscription") {
-      filtered = filtered.filter((p) => p.isPremium);
-    } else if (activeTab === "Trending") {
-      // Sort by likes descending
-      filtered = [...filtered].sort((a, b) => b.likes - a.likes);
-    }
-
-    // Custom Category/Type filtering (via tune modal)
-    if (filterType === "photos") {
-      filtered = filtered.filter(p => p.mediaType === "image");
-    } else if (filterType === "videos") {
-      filtered = filtered.filter(p => p.mediaType === "video");
-    } else if (filterType === "polls") {
-      filtered = filtered.filter(p => p.poll !== null && p.poll !== undefined);
-    } else if (filterType === "fundraisers") {
-      filtered = filtered.filter(p => p.fundraiser !== null && p.fundraiser !== undefined);
-    }
-
-    // Custom Sorting (via tune modal)
-    if (sortBy === "likes") {
-      filtered = [...filtered].sort((a, b) => b.likes - a.likes);
-    } else if (sortBy === "comments") {
-      filtered = [...filtered].sort((a, b) => b.commentsCount - a.commentsCount);
-    }
-
-    setPosts(filtered);
-  };
 
   useEffect(() => {
-    refreshUserProfile();
-    setTimeout(() => {
-      fetchFeedPosts();
-    }, 0);
+    if (user) {
+      setTimeout(() => {
+        fetchFeedPosts();
+      }, 0);
+    }
 
-    const handlePostsUpdate = () => fetchFeedPosts();
+    const handlePostsUpdate = () => {
+      if (user) {
+        fetchFeedPosts();
+      }
+    };
     window.addEventListener("ch_posts_updated", handlePostsUpdate);
     window.addEventListener("ch_blocked_users_updated", handlePostsUpdate);
 
@@ -89,7 +151,7 @@ export default function HomeFeedPage() {
       window.removeEventListener("ch_posts_updated", handlePostsUpdate);
       window.removeEventListener("ch_blocked_users_updated", handlePostsUpdate);
     };
-  }, [activeTab, subscriptions, searchQuery, filterType, sortBy]);
+  }, [user, fetchFeedPosts]);
 
   return (
     <AppShell>
@@ -97,9 +159,10 @@ export default function HomeFeedPage() {
       <MobileHeader>
         <div className="flex items-center gap-1 bg-primary/10 text-primary px-3 py-1 rounded-full text-xs font-bold select-none">
           <span className="material-symbols-outlined text-[15px]">account_balance_wallet</span>
-          <span>${mockDb.getWalletBalance().toFixed(2)}</span>
+          <span>₹{walletBalance.toFixed(2)}</span>
         </div>
       </MobileHeader>
+
 
       {/* 2. Main Two-Column Layout Grid */}
       <div className="mx-auto flex min-h-screen w-full max-w-[1240px] justify-center gap-6 bg-background px-4 md:px-6">
@@ -167,7 +230,19 @@ export default function HomeFeedPage() {
 
           {/* Posts Feed Grid */}
           <div className="space-y-5 pt-1">
-            {posts.length === 0 ? (
+            {feedError ? (
+              <div className="flex flex-col items-center justify-center rounded-3xl border border-red-500/20 bg-red-500/10 px-6 py-16 text-center space-y-3">
+                <span className="material-symbols-outlined text-[54px] text-red-400">cloud_off</span>
+                <h3 className="text-base font-extrabold text-text-main">Feed API unavailable</h3>
+                <p className="max-w-[360px] text-xs font-medium text-text-muted">{feedError}</p>
+                <button
+                  onClick={fetchFeedPosts}
+                  className="rounded-full bg-primary px-5 py-2 text-xs font-black text-white"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : posts.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-border/60 bg-surface py-20 text-center space-y-3">
                 <span className="material-symbols-outlined text-[54px] text-text-muted">feed</span>
                 <h3 className="text-base font-extrabold text-text-main">No posts found</h3>

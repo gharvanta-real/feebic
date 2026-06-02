@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState } from "react";
 import { useUser } from "@/context/UserContext";
-import { mockDb, LinkedCard } from "@/lib/mockDb";
+import { apiClient } from "@/lib/apiClient";
+import { LinkedCard } from "@/lib/mockDb";
 
 export default function SettingsPaymentsPage() {
   const { showToast } = useUser();
@@ -15,21 +16,20 @@ export default function SettingsPaymentsPage() {
   const [cvc, setCvc] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const fetchCards = () => {
-    setCards(mockDb.getLinkedCards());
+  const fetchCards = async () => {
+    try {
+      const data = await apiClient.get<LinkedCard[]>("/wallet/cards");
+      setCards(data);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to load linked cards");
+    }
   };
 
   useEffect(() => {
-    setTimeout(() => {
-      fetchCards();
-    }, 0);
-
-    const handleCardsChange = () => fetchCards();
-    window.addEventListener("ch_cards_updated", handleCardsChange);
-    return () => window.removeEventListener("ch_cards_updated", handleCardsChange);
+    fetchCards();
   }, []);
 
-  const handleAddCard = (e: React.FormEvent) => {
+  const handleAddCard = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (number.replace(/\s/g, "").length < 16) {
@@ -48,13 +48,16 @@ export default function SettingsPaymentsPage() {
     }
 
     setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
       // mask card number for security except last 4 digits
       const cleanNumber = number.replace(/\s/g, "");
       const formattedNum = `**** **** **** ${cleanNumber.slice(-4)}`;
       
-      mockDb.addLinkedCard(holder, formattedNum, expiry);
+      await apiClient.post("/wallet/cards", {
+        holder,
+        number: formattedNum,
+        expiry
+      });
       showToast("Card linked successfully!");
       
       // Reset form
@@ -62,22 +65,34 @@ export default function SettingsPaymentsPage() {
       setNumber("");
       setExpiry("");
       setCvc("");
-      fetchCards();
-    }, 1200);
-  };
-
-  const handleDeleteCard = (id: string) => {
-    if (confirm("Are you sure you want to delete this payment method?")) {
-      mockDb.deleteLinkedCard(id);
-      fetchCards();
-      showToast("Payment method deleted");
+      await fetchCards();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to link card");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleSetDefault = (id: string) => {
-    mockDb.setDefaultCard(id);
-    fetchCards();
-    showToast("Default payment card updated");
+  const handleDeleteCard = async (id: string) => {
+    if (confirm("Are you sure you want to delete this payment method?")) {
+      try {
+        await apiClient.delete(`/wallet/cards/${id}`);
+        await fetchCards();
+        showToast("Payment method deleted");
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Failed to delete card");
+      }
+    }
+  };
+
+  const handleSetDefault = async (id: string) => {
+    try {
+      await apiClient.put(`/wallet/cards/${id}/default`);
+      await fetchCards();
+      showToast("Default payment card updated");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to update default card");
+    }
   };
 
   const handleCardNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {

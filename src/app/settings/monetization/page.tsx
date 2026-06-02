@@ -4,9 +4,10 @@ import React, { useEffect, useState } from "react";
 import { useUser } from "@/context/UserContext";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { mockDb } from "@/lib/mockDb";
+import { apiClient } from "@/lib/apiClient";
 
 export default function MonetizationSettingsPage() {
-  const { showToast, user } = useUser();
+  const { showToast, user, updateProfile, refreshUserProfile } = useUser();
   const [subPrice, setSubPrice] = useState("9.99");
   
   // Bank connection states
@@ -25,77 +26,102 @@ export default function MonetizationSettingsPage() {
   const [callPricePerMin, setCallPricePerMin] = useState("5.00");
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setTimeout(() => {
-        setSubPrice(parseFloat(localStorage.getItem("ch_base_sub_price") || "9.99").toFixed(2));
-        
-        const linked = localStorage.getItem("ch_bank_linked") === "true";
-        setIsLinked(linked);
-        if (linked) {
-          setAccountHolder(localStorage.getItem("ch_bank_holder") || "Alex Rivera");
-          setRoutingNumber(localStorage.getItem("ch_bank_routing") || "123456789");
-          setAccountNumber(localStorage.getItem("ch_bank_account") || "987654321");
-          setBankName(localStorage.getItem("ch_bank_name") || "State Bank of India");
-        }
-
-        const username = user?.username || localStorage.getItem("ch_user_username") || "arivera";
-        const cleanName = username.replace("@", "");
-        setDiscountActive(localStorage.getItem(`ch_discount_active_${cleanName}`) === "true");
-        setDiscountPercent(localStorage.getItem(`ch_discount_percent_${cleanName}`) || "20");
-
-        setCallsEnabled(localStorage.getItem(`ch_calls_enabled_${cleanName}`) !== "false");
-        setCallPricePerMin(parseFloat(localStorage.getItem(`ch_call_rate_${cleanName}`) || "5.00").toFixed(2));
-      }, 0);
+    if (user) {
+      setSubPrice((user.subPrice ?? 9.99).toFixed(2));
+      setDiscountActive(!!user.discountActive);
+      setDiscountPercent((user.discountPercent ?? 20).toString());
+      setCallsEnabled(!!user.callsEnabled);
+      setCallPricePerMin((user.callRate ?? 5.00).toFixed(2));
     }
+    
+    fetchBankDetails();
   }, [user]);
 
-  const handlePriceSave = (e: React.FormEvent) => {
+  const fetchBankDetails = async () => {
+    try {
+      const data = await apiClient.get<any>("/wallet/bank");
+      if (data && data.linked) {
+        setIsLinked(true);
+        setAccountHolder(data.accountHolder || "");
+        setRoutingNumber(data.routingNumber || "");
+        setAccountNumber(data.accountNumber || "");
+        setBankName(data.bankName || "");
+      } else {
+        setIsLinked(false);
+      }
+    } catch (err) {
+      console.error("Failed to load bank details", err);
+    }
+  };
+
+  const handlePriceSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const price = Math.min(99.99, Math.max(4.99, parseFloat(subPrice) || 9.99));
     setSubPrice(price.toFixed(2));
-    localStorage.setItem("ch_base_sub_price", price.toFixed(2));
-    showToast(`Subscription price updated to $${price.toFixed(2)}/mo`);
+    
+    const success = await updateProfile({ subPrice: price });
+    if (success) {
+      showToast(`Subscription price updated to $${price.toFixed(2)}/mo`);
+    }
   };
 
-  const handleBankSave = (e: React.FormEvent) => {
+  const handleBankSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    localStorage.setItem("ch_bank_linked", "true");
-    localStorage.setItem("ch_bank_holder", accountHolder);
-    localStorage.setItem("ch_bank_routing", routingNumber);
-    localStorage.setItem("ch_bank_account", accountNumber);
-    localStorage.setItem("ch_bank_name", bankName);
-    
-    setIsLinked(true);
-    showToast("Bank account details linked successfully!");
+    try {
+      const data = await apiClient.post<any>("/wallet/bank", {
+        bankName,
+        accountHolder,
+        routingNumber,
+        accountNumber
+      });
+      setIsLinked(data.linked);
+      showToast("Bank account details linked successfully!");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to link bank account");
+    }
   };
 
-  const handleDiscountSave = (e: React.FormEvent) => {
+  const handleDiscountSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const percentNum = Math.min(90, Math.max(5, parseInt(discountPercent) || 20));
     setDiscountPercent(percentNum.toString());
 
-    const username = user?.username || localStorage.getItem("ch_user_username") || "arivera";
-    mockDb.setCreatorDiscount(username, percentNum, discountActive);
-    showToast(
-      `Discount campaign updated: ${
-        discountActive ? `${percentNum}% OFF active globally` : "Deactivated successfully"
-      }`
-    );
+    try {
+      await apiClient.put("/users/monetization/discount", {
+        discount_active: discountActive,
+        discount_percent: percentNum,
+      });
+      showToast(
+        `Discount campaign updated: ${
+          discountActive ? `${percentNum}% OFF active globally` : "Deactivated successfully"
+        }`
+      );
+      refreshUserProfile();
+    } catch (err: any) {
+      showToast(err.message || "Failed to update discount campaign");
+    }
   };
 
-  const handleCallsSave = (e: React.FormEvent) => {
+  const handleCallsSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const rate = Math.min(20.00, Math.max(1.00, parseFloat(callPricePerMin) || 5.00));
     setCallPricePerMin(rate.toFixed(2));
 
-    const username = user?.username || localStorage.getItem("ch_user_username") || "arivera";
-    mockDb.setCreatorCallRate(username, callsEnabled, rate);
-    showToast(
-      `Private call settings updated: ${
-        callsEnabled ? `$${rate.toFixed(2)}/min calls active` : "Deactivated direct calls"
-      }`
-    );
+    try {
+      await apiClient.put("/users/monetization/calls", {
+        calls_enabled: callsEnabled,
+        call_rate: rate,
+      });
+      showToast(
+        `Private call settings updated: ${
+          callsEnabled ? `$${rate.toFixed(2)}/min calls active` : "Deactivated direct calls"
+        }`
+      );
+      refreshUserProfile();
+    } catch (err: any) {
+      showToast(err.message || "Failed to update call settings");
+    }
   };
 
   return (

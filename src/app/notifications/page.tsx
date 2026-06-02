@@ -5,31 +5,70 @@ import { AppShell } from "@/components/layout/AppShell";
 import { MobileHeader } from "@/components/layout/MobileHeader";
 import { useUser } from "@/context/UserContext";
 import { mockDb, Notification } from "@/lib/mockDb";
+import { apiClient } from "@/lib/apiClient";
+
 
 export default function NotificationsPage() {
   const { markNotificationsAsRead, showToast } = useUser();
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  const handleDismiss = (id: string) => {
-    const updated = notifications.filter(n => n.id !== id);
-    setNotifications(updated);
-    // Persist to mockDb
-    if (typeof window !== "undefined") {
-      localStorage.setItem("ch_notifications", JSON.stringify(updated));
+  const handleDismiss = async (id: string) => {
+    try {
+      await apiClient.post("/notifications/read", { id, action: "dismiss" });
+      const updated = notifications.filter(n => n.id !== id);
+      setNotifications(updated);
+    } catch (err) {
+      console.error("Failed to dismiss notification:", err);
     }
   };
 
-  const handleClearAll = () => {
-    setNotifications([]);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("ch_notifications", JSON.stringify([]));
+  const handleClearAll = async () => {
+    try {
+      await apiClient.post("/notifications/read", { action: "clear_all" });
+      setNotifications([]);
+      showToast("All notifications cleared");
+    } catch (err) {
+      console.error("Failed to clear notifications:", err);
     }
-    showToast("All notifications cleared");
   };
 
-  const fetchNotifs = () => {
-    setNotifications(mockDb.getNotifications());
+  const formatRelativeTime = (rfc3339Str: string): string => {
+    try {
+      const date = new Date(rfc3339Str);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffMins = Math.floor(diffMs / (1000 * 60));
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+      if (diffMins < 1) return "Just now";
+      if (diffMins < 60) return `${diffMins}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+      return `${diffDays}d ago`;
+    } catch (e) {
+      return "Just now";
+    }
   };
+
+  const fetchNotifs = async () => {
+    try {
+      const data = await apiClient.get<any[]>("/notifications");
+      const mapped = data.map((n) => ({
+        id: n.id,
+        type: n.type,
+        text: n.text,
+        amount: n.amount,
+        read: n.read,
+        time: n.time ? formatRelativeTime(n.time) : "Just now",
+        senderName: n.sender_name || "Someone",
+        senderAvatar: n.sender_avatar || "/assets/be708ecefc41b969ee64c477f954168c.png"
+      }));
+      setNotifications(mapped);
+    } catch (err) {
+      console.error("API error fetching notifications:", err);
+    }
+  };
+
 
   useEffect(() => {
     setTimeout(() => {

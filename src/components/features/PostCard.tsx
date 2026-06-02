@@ -2,17 +2,31 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import { mockDb, Post, Creator, PostComment } from "@/lib/mockDb";
 import { PaymentModal } from "../ui/PaymentModal";
 import { VerifiedBadge } from "@/components/ui/VerifiedBadge";
+import { apiClient } from "@/lib/apiClient";
+import { VideoPlayer } from "@/components/features/VideoPlayer";
 
 interface PostCardProps {
   post: Post;
   onPostUpdate?: () => void;
   defaultShowComments?: boolean;
 }
+
+type ApiPost = Post & {
+  isLiked?: boolean;
+  isBookmarked?: boolean;
+  isUnlocked?: boolean;
+};
+
+type CommentResponse = {
+  comment: PostComment;
+  comments_count: number;
+};
 
 const renderLinkedText = (text: string) => {
   const tokens = text.split(/(@[a-zA-Z0-9_]+|https?:\/\/[^\s]+|www\.[^\s]+)/g);
@@ -49,7 +63,7 @@ const renderLinkedText = (text: string) => {
 };
 
 export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpdate, defaultShowComments = false }) => {
-  const { user, subscriptions, showToast } = useUser();
+  const { user, subscriptions, showToast, refreshUserProfile } = useUser();
   const router = useRouter();
   const pathname = usePathname();
   const [post, setPost] = useState<Post>(initialPost);
@@ -57,23 +71,13 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
   const [repostedFromId, setRepostedFromId] = useState<string | null>(initialPost.repostedFromId || null);
 
   useEffect(() => {
-    if (initialPost.repostedFromId) {
-      setTimeout(() => {
-        const posts = mockDb.getPosts(true);
-        const original = posts.find(p => p.id === initialPost.repostedFromId);
-        if (original) {
-          setPost(original);
-        }
-      }, 0);
-    } else {
-      setPost(initialPost);
-    }
+    setPost(initialPost);
     setRepostedBy(initialPost.repostedBy || null);
     setRepostedFromId(initialPost.repostedFromId || null);
   }, [initialPost]);
 
-  const [isLiked, setIsLiked] = useState(false);
-  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [isLiked, setIsLiked] = useState(Boolean((initialPost as ApiPost).isLiked));
+  const [isBookmarked, setIsBookmarked] = useState(Boolean((initialPost as ApiPost).isBookmarked));
   const [likeAnim, setLikeAnim] = useState(false);
 
   // Comments accordion state
@@ -104,28 +108,22 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
 
-  // Video player state
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [videoProgress, setVideoProgress] = useState(0);
-
   const creator: Creator | null = mockDb.getCreator(post.creatorUsername);
   const isSubscribed = subscriptions.includes(post.creatorUsername);
-  const isUnlocked = mockDb.isUnlocked(post.id);
+  const isUnlocked = Boolean((post as ApiPost).isUnlocked);
   const isSubscriptionGated = post.isPremium && post.price === 0;
   const isPPV = post.isPremium && post.price > 0;
   const isLocked = post.isPremium && !isSubscribed && !isUnlocked;
 
   useEffect(() => {
     setTimeout(() => {
-      setIsLiked(mockDb.isPostLiked(post.id));
-      setIsBookmarked(mockDb.isBookmarked(post.id));
+      setIsLiked(Boolean((post as ApiPost).isLiked));
+      setIsBookmarked(Boolean((post as ApiPost).isBookmarked));
       if (post.poll && post.poll.votedOptionIndex !== undefined) {
         setVotedOption(post.poll.votedOptionIndex);
       }
       if (defaultShowComments) {
-        setComments(mockDb.getComments(post.id));
+        fetchComments();
       }
     }, 0);
   }, [post.id, defaultShowComments]);
@@ -142,20 +140,38 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
     return () => document.removeEventListener("mousedown", handleClick);
   }, [showMoreMenu]);
 
-  const handleLike = () => {
-    const res = mockDb.toggleLikePost(post.id);
-    setIsLiked(res.isLiked);
-    setPost({ ...post, likes: res.likes });
-    if (res.isLiked) {
-      setLikeAnim(true);
-      setTimeout(() => setLikeAnim(false), 400);
+  const handleLike = async () => {
+    try {
+      const res = await apiClient.post<{ is_liked: boolean; likes: number }>(`/posts/${post.id}/like`);
+      setIsLiked(res.is_liked);
+      setPost({ ...post, likes: res.likes } as Post);
+      if (res.is_liked) {
+        setLikeAnim(true);
+        setTimeout(() => setLikeAnim(false), 400);
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to update like");
     }
   };
 
-  const handleBookmark = () => {
-    const res = mockDb.toggleBookmark(post.id);
-    setIsBookmarked(res);
-    showToast(res ? "Post bookmarked" : "Removed from bookmarks");
+  const handleBookmark = async () => {
+    try {
+      const res = await apiClient.post<{ is_bookmarked: boolean }>(`/posts/${post.id}/bookmark`);
+      setIsBookmarked(res.is_bookmarked);
+      window.dispatchEvent(new CustomEvent("ch_bookmark_changed", { detail: { postId: post.id, isBookmarked: res.is_bookmarked } }));
+      showToast(res.is_bookmarked ? "Post bookmarked" : "Removed from bookmarks");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to update bookmark");
+    }
+  };
+
+  const fetchComments = async () => {
+    try {
+      const data = await apiClient.get<PostComment[]>(`/posts/${post.id}/comments`);
+      setComments(data);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to load comments");
+    }
   };
 
   const handleShare = () => {
@@ -176,17 +192,23 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
     const next = !showComments;
     setShowComments(next);
     if (next) {
-      setComments(mockDb.getComments(post.id));
+      fetchComments();
     }
   };
 
-  const handleAddComment = (e: React.FormEvent) => {
+  const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCommentText.trim()) return;
-    const newComment = mockDb.addComment(post.id, newCommentText);
-    setComments([...comments, newComment]);
-    setNewCommentText("");
-    setPost({ ...post, commentsCount: post.commentsCount + 1 });
+    const text = newCommentText.trim();
+    if (!text) return;
+
+    try {
+      const res = await apiClient.post<CommentResponse>(`/posts/${post.id}/comments`, { text });
+      setComments([...comments, res.comment]);
+      setNewCommentText("");
+      setPost({ ...post, commentsCount: res.comments_count });
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to add comment");
+    }
   };
 
   const triggerUnlock = () => {
@@ -204,28 +226,54 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
     setShowTipPanel(false);
   };
 
-  const handlePaymentConfirm = () => {
-    if (paymentMode === "unlock") {
-      mockDb.unlockContent(post.id, post.price);
-      showToast("Content unlocked successfully!");
-      if (onPostUpdate) onPostUpdate();
-      setPost({ ...post });
-    } else if (paymentMode === "tip") {
-      mockDb.adjustWalletBalance(-paymentPrice, `Tip to @${post.creatorUsername}`, post.creatorUsername);
-      showToast(`Tip of $${paymentPrice.toFixed(2)} sent to @${post.creatorUsername}! 💰`);
-    } else if (paymentMode === "fundraiser") {
-      handleContributionSuccess();
+  const handlePaymentConfirm = async (tipMessage?: string, paymentSource: "wallet" | "card" = "wallet") => {
+    if (paymentSource === "card") {
+      try {
+        await apiClient.post("/wallet/deposit", { amount: paymentPrice });
+        showToast(`Deposited ₹${paymentPrice.toFixed(2)} via card successfully!`);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Failed to deposit via card");
+        return;
+      }
     }
+
+    if (paymentMode === "unlock") {
+      try {
+        await apiClient.post<{ is_unlocked: boolean; balance: number }>(`/posts/${post.id}/unlock`);
+        showToast("Content unlocked successfully!");
+        if (onPostUpdate) onPostUpdate();
+        setPost({ ...post, isUnlocked: true } as Post);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Failed to unlock content");
+      }
+    } else if (paymentMode === "tip") {
+      try {
+        await apiClient.post("/wallet/tip", {
+          creator_id: post.creatorUsername,
+          amount: paymentPrice,
+          message: tipMessage || `Tip to @${post.creatorUsername}`,
+        });
+        showToast(`Tip of ₹${paymentPrice.toFixed(2)} sent to @${post.creatorUsername}!`);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Failed to send tip");
+      }
+    } else if (paymentMode === "fundraiser") {
+      await handleContributionSuccess();
+    }
+    refreshUserProfile();
   };
 
-  const handlePollVote = (index: number) => {
+  const handlePollVote = async (index: number) => {
     if (votedOption !== null && votedOption !== undefined) return;
-    mockDb.votePoll(post.id, index);
-    setVotedOption(index);
-    const updatedPosts = mockDb.getPosts(true);
-    const updatedPost = updatedPosts.find((p) => p.id === post.id);
-    if (updatedPost) setPost(updatedPost);
-    showToast("Vote recorded");
+    try {
+      const res = await apiClient.post<{ poll: Post["poll"] }>(`/posts/${post.id}/poll/vote`, { option_index: index });
+      setVotedOption(index);
+      setPost({ ...post, poll: res.poll });
+      showToast("Vote recorded");
+      if (onPostUpdate) onPostUpdate();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to record vote");
+    }
   };
 
   const handleFundraiseSubmit = (e: React.FormEvent) => {
@@ -241,46 +289,58 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
     setIsPaymentOpen(true);
   };
 
-  const handleContributionSuccess = () => {
+  const handleContributionSuccess = async () => {
     const amt = parseFloat(fundraiseAmount);
-    mockDb.contributeFundraiser(post.id, amt);
-    setFundraiseAmount("");
-    const updatedPosts = mockDb.getPosts(true);
-    const updatedPost = updatedPosts.find((p) => p.id === post.id);
-    if (updatedPost) setPost(updatedPost);
-    showToast(`Contributed $${amt.toFixed(2)} successfully!`);
-  };
-
-  // Video player controls
-  const handlePlayPause = () => {
-    if (!videoRef.current) return;
-    if (isPlaying) {
-      videoRef.current.pause();
-    } else {
-      videoRef.current.play().catch(() => {
-        showToast("Tap the video controls to play");
-      });
+    try {
+      const res = await apiClient.post<{ fundraiser: Post["fundraiser"] }>(`/posts/${post.id}/fundraiser/contribute`, { amount: amt });
+      setFundraiseAmount("");
+      setPost({ ...post, fundraiser: res.fundraiser });
+      showToast(`Contributed ₹${amt.toFixed(2)} successfully!`);
+      if (onPostUpdate) onPostUpdate();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to contribute");
     }
   };
 
-  const handleMute = () => {
-    if (!videoRef.current) return;
-    videoRef.current.muted = !isMuted;
-    setIsMuted(!isMuted);
+  const handleRepost = async () => {
+    try {
+      await apiClient.post(`/posts/${post.id}/repost`);
+      showToast("Post reposted to your feed!");
+      if (onPostUpdate) onPostUpdate();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to repost");
+    } finally {
+      setShowMoreMenu(false);
+    }
   };
 
-  const handleVideoProgress = () => {
-    if (!videoRef.current) return;
-    const prog = (videoRef.current.currentTime / videoRef.current.duration) * 100;
-    setVideoProgress(isNaN(prog) ? 0 : prog);
+  const handleReportPost = async () => {
+    try {
+      await apiClient.post(`/posts/${post.id}/report`, { reason: "Reported from post menu" });
+      showToast("Post reported. Thank you!");
+      if (onPostUpdate) onPostUpdate();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to report post");
+    } finally {
+      setShowMoreMenu(false);
+    }
   };
 
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!videoRef.current) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const pct = x / rect.width;
-    videoRef.current.currentTime = pct * videoRef.current.duration;
+  const handleDeletePost = async () => {
+    if (!confirm("Delete this post?")) {
+      setShowMoreMenu(false);
+      return;
+    }
+
+    try {
+      await apiClient.delete(`/posts/${post.id}`);
+      showToast("Post deleted");
+      if (onPostUpdate) onPostUpdate();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to delete post");
+    } finally {
+      setShowMoreMenu(false);
+    }
   };
 
   // Carousel helpers
@@ -293,69 +353,8 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
     setCarouselIndex((prev) => (prev - 1 + mediaLength) % mediaLength);
   };
 
-  const renderVideoPlayer = (src: string) => (
-    <div className="relative w-full group bg-black" style={{ maxHeight: 300 }}>
-      <video
-        ref={videoRef}
-        src={src}
-        playsInline
-        preload="metadata"
-        className="w-full max-h-[300px] object-contain"
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
-        onTimeUpdate={handleVideoProgress}
-        onEnded={() => setIsPlaying(false)}
-        onClick={(e) => {
-          e.preventDefault();
-          handlePlayPause();
-        }}
-      />
-      {/* Custom controls overlay */}
-      <div className="pointer-events-none absolute inset-0 flex flex-col justify-end opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity bg-gradient-to-t from-black/45 via-transparent to-transparent">
-        {/* Progress bar */}
-        <div
-          className="pointer-events-auto w-full h-1 bg-white/30 cursor-pointer mx-0 mb-1"
-          onClick={handleSeek}
-        >
-          <div className="h-full bg-primary transition-all" style={{ width: `${videoProgress}%` }} />
-        </div>
-        <div className="flex items-center gap-3 px-3 pb-2">
-          <button
-            onClick={handlePlayPause}
-            className="pointer-events-auto text-white hover:text-primary transition-colors cursor-pointer"
-          >
-            <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-              {isPlaying ? "pause" : "play_arrow"}
-            </span>
-          </button>
-          <button
-            onClick={handleMute}
-            className="pointer-events-auto text-white hover:text-primary transition-colors cursor-pointer"
-          >
-            <span className="material-symbols-outlined text-[17px]">
-              {isMuted ? "volume_off" : "volume_up"}
-            </span>
-          </button>
-          <span className="material-symbols-outlined pointer-events-auto text-[15px] text-white/80 ml-auto cursor-pointer hover:text-white"
-            onClick={() => videoRef.current?.requestFullscreen()}>
-            fullscreen
-          </span>
-        </div>
-      </div>
-      {/* Play overlay when paused */}
-      {!isPlaying && (
-        <div
-          className="absolute inset-0 flex items-center justify-center cursor-pointer"
-          onClick={handlePlayPause}
-        >
-          <div className="h-11 w-11 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm">
-            <span className="material-symbols-outlined text-white text-[24px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-              play_arrow
-            </span>
-          </div>
-        </div>
-      )}
-    </div>
+  const renderVideoPlayer = (src: string, fit: "contain" | "cover" = "contain") => (
+    <VideoPlayer src={src} fit={fit} className="h-full w-full" />
   );
 
   const renderMediaGrid = () => {
@@ -368,7 +367,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
           {post.mediaType === "video" ? (
             renderVideoPlayer(urls[0])
           ) : (
-            <img src={urls[0]} alt="Post Media" className="w-full max-h-[300px] object-cover hover:scale-[1.01] transition-transform duration-300" />
+            <Image src={urls[0]} alt="Post Media" width={800} height={300} unoptimized className="w-full max-h-[300px] object-cover hover:scale-[1.01] transition-transform duration-300" />
           )}
         </div>
       );
@@ -378,7 +377,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
       return (
         <div className="flex gap-2 w-full h-[380px] overflow-hidden select-none">
           <div className="w-[65%] h-full relative bg-black overflow-hidden group rounded-xl">
-            <img src={urls[carouselIndex]} className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.02] cursor-pointer" alt="main" />
+            <Image src={urls[carouselIndex]} width={600} height={380} unoptimized className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.02] cursor-pointer" alt="main" />
             <button onClick={(e) => prevSlide(urls.length, e)} className="absolute left-3 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity">
               <span className="material-symbols-outlined text-[20px]">chevron_left</span>
             </button>
@@ -394,7 +393,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
               const isActive = urls.indexOf(url) === carouselIndex;
               return (
                 <div key={idx} onClick={() => setCarouselIndex(urls.indexOf(url))} className={`flex-1 overflow-hidden relative cursor-pointer border-2 rounded-xl ${isActive ? "border-primary" : "border-transparent"}`}>
-                  <img src={url} className="h-full w-full object-cover hover:scale-105 transition-transform duration-300" alt="sub" />
+                  <Image src={url} width={150} height={120} unoptimized className="h-full w-full object-cover hover:scale-105 transition-transform duration-300" alt="sub" />
                   {idx === 2 && urls.length > 4 && (
                     <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white font-black text-sm">+{urls.length - 4}</div>
                   )}
@@ -413,7 +412,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
             {post.mediaType === "video" && carouselIndex === 0 ? (
               renderVideoPlayer(urls[0])
             ) : (
-              <img src={urls[carouselIndex]} className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.02] cursor-pointer" alt="main" />
+              <Image src={urls[carouselIndex]} width={600} height={380} unoptimized className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.02] cursor-pointer" alt="main" />
             )}
             <button onClick={(e) => prevSlide(urls.length, e)} className="absolute left-3 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity">
               <span className="material-symbols-outlined text-[20px]">chevron_left</span>
@@ -430,7 +429,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
               const isActive = urls.indexOf(url) === carouselIndex;
               return (
                 <div key={idx} onClick={() => setCarouselIndex(urls.indexOf(url))} className={`overflow-hidden relative cursor-pointer border-2 rounded-xl ${isActive ? "border-primary" : "border-transparent"}`}>
-                  <img src={url} className="h-full w-full object-cover hover:scale-105 transition-transform duration-300" alt="sub" />
+                  <Image src={url} width={150} height={120} unoptimized className="h-full w-full object-cover hover:scale-105 transition-transform duration-300" alt="sub" />
                   {urls.indexOf(url) === 0 && post.mediaType === "video" && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                       <span className="material-symbols-outlined text-white text-[22px]" style={{ fontVariationSettings: "'FILL' 1" }}>play_circle</span>
@@ -447,7 +446,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
     // Default: horizontal carousel
     return (
       <div className="w-full h-[380px] relative bg-black overflow-hidden group select-none">
-        <img src={urls[carouselIndex]} alt="Slide" className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.01]" />
+        <Image src={urls[carouselIndex]} alt="Slide" width={800} height={380} unoptimized className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.01]" />
         <button onClick={(e) => prevSlide(urls.length, e)} className="absolute left-3.5 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-black/40 hover:bg-black/60 text-white flex items-center justify-center transition-all cursor-pointer opacity-0 group-hover:opacity-100">
           <span className="material-symbols-outlined text-[22px]">chevron_left</span>
         </button>
@@ -492,9 +491,12 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
       {/* Header */}
       <div className="flex items-center justify-between select-none px-0.5">
         <Link href={`/profile?u=${post.creatorUsername}`} className="flex items-center gap-3 group min-w-0">
-          <img
+          <Image
             src={post.creatorAvatar}
             alt={post.creatorName}
+            width={44}
+            height={44}
+            unoptimized
             className="h-11 w-11 rounded-full object-cover border border-border group-hover:opacity-95 transition-opacity shrink-0"
           />
           <div className="min-w-0">
@@ -530,13 +532,13 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
                     {[5, 10, 25, 50].map(amt => (
                       <button key={amt} onClick={() => triggerTip(amt)}
                         className="py-1.5 border border-border rounded-lg text-[10px] font-black text-text-main hover:border-success hover:text-success transition-colors cursor-pointer">
-                        ${amt}
+                        ₹{amt}
                       </button>
                     ))}
                   </div>
                   <div className="flex gap-1.5">
                     <div className="flex-grow flex items-center bg-background border border-border rounded-lg px-2 py-1 focus-within:border-success transition-colors">
-                      <span className="text-[10px] font-bold text-text-muted mr-0.5">$</span>
+                      <span className="text-[10px] font-bold text-text-muted mr-0.5">₹</span>
                       <input
                         type="number"
                         min="1"
@@ -586,12 +588,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
                 </button>
                 {!isLocked && !repostedFromId && (
                   <button
-                    onClick={() => {
-                      mockDb.repostPost(post.id);
-                      showToast("Post reposted to your feed! 🔄");
-                      setShowMoreMenu(false);
-                      if (onPostUpdate) onPostUpdate();
-                    }}
+                    onClick={handleRepost}
                     className="flex items-center gap-2 px-3 py-2 text-[11px] font-bold text-text-main hover:text-primary hover:bg-primary/5 rounded-xl w-full text-left cursor-pointer"
                   >
                     <span className="material-symbols-outlined text-[16px]">repeat</span>
@@ -599,12 +596,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
                   </button>
                 )}
                 <button
-                  onClick={() => {
-                    mockDb.reportPost(post.id);
-                    showToast("Post reported. Thank you!");
-                    setShowMoreMenu(false);
-                    if (onPostUpdate) onPostUpdate();
-                  }}
+                  onClick={handleReportPost}
                   className="flex items-center gap-2 px-3 py-2 text-[11px] font-bold text-text-main hover:text-primary hover:bg-primary/5 rounded-xl w-full text-left cursor-pointer"
                 >
                   <span className="material-symbols-outlined text-[16px]">flag</span>
@@ -615,14 +607,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
                   <>
                     <hr className="border-border/50 my-1" />
                     <button
-                      onClick={() => {
-                        if (confirm("Delete this post?")) {
-                          mockDb.deletePost(post.id);
-                          showToast("Post deleted");
-                          if (onPostUpdate) onPostUpdate();
-                        }
-                        setShowMoreMenu(false);
-                      }}
+                      onClick={handleDeletePost}
                       className="flex items-center gap-2 px-3 py-2 text-[11px] font-black text-red-500 hover:bg-red-500/10 rounded-xl w-full text-left cursor-pointer"
                     >
                       <span className="material-symbols-outlined text-[16px]">delete</span>
@@ -674,14 +659,14 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
         <div className="border border-border rounded-2xl p-4 space-y-3">
           <div className="flex justify-between items-center text-xs">
             <span className="font-bold text-text-muted uppercase tracking-wider">Fundraiser: {post.fundraiser.title}</span>
-            <span className="font-extrabold text-primary">${post.fundraiser.current} / ${post.fundraiser.goal}</span>
+            <span className="font-extrabold text-primary">₹{post.fundraiser.current} / ₹{post.fundraiser.goal}</span>
           </div>
           <div className="w-full h-2 bg-border rounded-full overflow-hidden">
             <div className="h-full bg-primary transition-all duration-500" style={{ width: `${Math.min(100, (post.fundraiser.current / post.fundraiser.goal) * 100)}%` }} />
           </div>
           <form onSubmit={handleFundraiseSubmit} className="flex gap-2">
             <div className="relative flex-grow flex items-center bg-background border border-border rounded-full px-4 py-1.5 focus-within:border-primary transition-all">
-              <span className="text-sm font-bold text-text-muted mr-1">$</span>
+              <span className="text-sm font-bold text-text-muted mr-1">₹</span>
               <input
                 type="number"
                 placeholder="Amount..."
@@ -710,6 +695,14 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
               }}
             />
             <div className="absolute inset-0 bg-black/50 backdrop-blur-xl" />
+            
+            {/* Watermark security overlay on locked preview */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden opacity-25 z-0">
+              <span className="text-[20px] font-black uppercase tracking-widest text-white/50 transform -rotate-12 whitespace-nowrap">
+                feebic.in/@{post.creatorUsername}
+              </span>
+            </div>
+
             <div className="relative z-10 flex flex-col items-center gap-4">
               {/* Video indicator on locked video */}
               {post.mediaType === "video" && (
@@ -735,7 +728,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
                 {isPPV ? (
                   <>
                     <span className="material-symbols-outlined text-[15px]">lock_open</span>
-                    Unlock for ${post.price}
+                    Unlock for ₹{post.price}
                   </>
                 ) : (
                   <>
@@ -747,7 +740,16 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
             </div>
           </div>
         ) : (
-          renderMediaGrid()
+          <div className="relative w-full h-full">
+            {renderMediaGrid()}
+            
+            {/* Watermark security overlay on unlocked media */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden opacity-25 z-20">
+              <span className="text-[22px] font-black uppercase tracking-widest text-white/60 transform -rotate-12 whitespace-nowrap bg-black/10 px-4 py-1.5 rounded-xl border border-white/10 shadow-sm backdrop-blur-[0.5px]">
+                feebic.in/@{post.creatorUsername}
+              </span>
+            </div>
+          </div>
         )}
       </div>
 
@@ -821,7 +823,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
               comments.map((comment) => (
                 <div key={comment.id} className="flex gap-3 text-xs items-start animate-fade-in">
                   <Link href={`/profile?u=${comment.username}`}>
-                    <img src={comment.avatar} alt={comment.name} className="h-8 w-8 rounded-full object-cover border border-border shrink-0" />
+                    <Image src={comment.avatar} alt={comment.name} width={32} height={32} unoptimized className="h-8 w-8 rounded-full object-cover border border-border shrink-0" />
                   </Link>
                   <div className="flex-grow min-w-0">
                     <div className="flex items-baseline gap-2 mb-0.5">
@@ -840,7 +842,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
           {/* Comment input */}
           <form onSubmit={handleAddComment} className="flex gap-2 items-center">
             {user && (
-              <img src={user.avatar} alt="You" className="h-7 w-7 rounded-full object-cover border border-border shrink-0" />
+              <Image src={user.avatar} alt="You" width={28} height={28} unoptimized className="h-7 w-7 rounded-full object-cover border border-border shrink-0" />
             )}
             <input
               type="text"

@@ -3,9 +3,10 @@
 import React, { useEffect, useState } from "react";
 import { useUser } from "@/context/UserContext";
 import { RoleGuard } from "@/components/layout/RoleGuard";
+import { apiClient } from "@/lib/apiClient";
 
 export default function VerificationSettingsPage() {
-  const { showToast } = useUser();
+  const { showToast, user, refreshUserProfile } = useUser();
   const [legalName, setLegalName] = useState("Alex Rivera");
   const [documentType, setDocumentType] = useState("PAN Card");
   const [docUploaded, setDocUploaded] = useState(false);
@@ -13,36 +14,36 @@ export default function VerificationSettingsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setTimeout(() => {
-        setIsVerified(localStorage.getItem("ch_verification_done") === "true");
-        setDocUploaded(localStorage.getItem("ch_verification_uploaded") === "true");
-        if (localStorage.getItem("ch_verification_name")) {
-          setLegalName(localStorage.getItem("ch_verification_name")!);
-        }
-      }, 0);
+    if (user) {
+      setIsVerified(!!user.kycVerified);
+      setDocUploaded(!!user.kycUploaded);
+      if (user.kycName) {
+        setLegalName(user.kycName);
+      }
+      if (user.kycDocumentType) {
+        setDocumentType(user.kycDocumentType);
+      }
     }
-  }, []);
+  }, [user]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
+      await apiClient.post("/users/kyc", {
+        legal_name: legalName,
+        document_type: documentType,
+      });
       setDocUploaded(true);
-      localStorage.setItem("ch_verification_uploaded", "true");
-      localStorage.setItem("ch_verification_name", legalName);
-      
-      // Simulate automatic mock approval after 3 seconds
-      showToast("Documents uploaded. Under review.");
-      
-      setTimeout(() => {
-        setIsVerified(true);
-        localStorage.setItem("ch_verification_done", "true");
-        showToast("Identity verified successfully! Verified badge unlocked.");
-      }, 3000);
-    }, 1500);
+      setIsVerified(true);
+      showToast("Identity verified successfully! Verified badge unlocked.");
+      refreshUserProfile();
+    } catch (err: any) {
+      showToast(err.message || "Failed to submit verification");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

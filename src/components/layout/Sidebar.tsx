@@ -6,6 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useSidebar } from "@/context/SidebarContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
+import { useClerk } from "@clerk/nextjs";
+import { filterByRole, mainNavLinks, roleLabel } from "@/lib/roleAccess";
 
 export const Sidebar: React.FC = () => {
   const pathname = usePathname();
@@ -13,39 +15,12 @@ export const Sidebar: React.FC = () => {
   const { isCollapsed, toggleSidebar } = useSidebar();
   const { theme, toggleTheme } = useTheme();
   const { user } = useUser();
+  const { signOut } = useClerk();
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   if (!user) return null;
 
-  const links: { href: string; label: string; icon: string; key: string; role: string[]; badgeValue?: number }[] = [
-    { href: "/", label: "Home", icon: "home", key: "home", role: ["fan", "creator"] },
-    { href: "/explore", label: "Explore", icon: "explore", key: "explore", role: ["fan", "creator"] },
-    { 
-      href: "/notifications", 
-      label: "Notifications", 
-      icon: "notifications", 
-      key: "notifications", 
-      role: ["fan", "creator"]
-    },
-    { 
-      href: "/chat", 
-      label: "Messages", 
-      icon: "chat", 
-      key: "chat", 
-      role: ["fan", "creator"]
-    },
-    { href: "/collections", label: "Collections", icon: "collections_bookmark", key: "collections", role: ["fan", "creator"] },
-    { href: "/subscriptions", label: "Subscriptions", icon: "card_membership", key: "subscriptions", role: ["fan", "creator"] },
-    { href: "/lists", label: "Lists", icon: "list_alt", key: "lists", role: ["fan", "creator"] },
-    { href: "/create-post", label: "Create Post", icon: "add_circle", key: "create-post", role: ["creator"] },
-    { href: "/profile", label: "Profile", icon: "person", key: "profile", role: ["fan", "creator"] },
-    { href: "/wallet", label: "Wallet", icon: "account_balance_wallet", key: "wallet", role: ["fan", "creator"] },
-    { href: "/settings", label: "Settings", icon: "settings", key: "settings", role: ["fan", "creator"] },
-    { href: "/studio", label: "Studio", icon: "dashboard", key: "studio", role: ["creator"] }
-  ];
-
-  // Filter links by user role
-  const visibleLinks = links.filter((link) => link.role.includes(user.role));
+  const visibleLinks = filterByRole(mainNavLinks, user.role);
 
   const isLinkActive = (href: string) => {
     if (href === "/") {
@@ -77,6 +52,19 @@ export const Sidebar: React.FC = () => {
           )}
         </div>
       </div>
+
+      {!isCollapsed && (
+        <div className={`mb-3 flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-black ${
+          user.role === "creator"
+            ? "border-primary/20 bg-primary/10 text-primary"
+            : "border-border bg-background text-text-muted"
+        }`}>
+          <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>
+            {user.role === "creator" ? "workspace_premium" : "visibility"}
+          </span>
+          <span>{roleLabel[user.role]} Mode</span>
+        </div>
+      )}
 
       {/* 2. Navigation Menu Links list (Rounded pills style) */}
       <nav className="flex-1 space-y-1 overflow-y-auto pr-0.5 no-scrollbar mt-1">
@@ -218,8 +206,9 @@ export const Sidebar: React.FC = () => {
           <hr className="border-border/50 my-1" />
           <button 
             onClick={() => { 
-              localStorage.clear(); 
-              window.location.href = "/onboarding"; 
+              localStorage.removeItem("ch_token");
+              localStorage.removeItem("ch_onboarding_done");
+              signOut({ redirectUrl: "/login" });
             }}
             className="flex items-center gap-3 px-3.5 py-2.5 text-xs font-bold hover:bg-accent/10 text-accent rounded-xl w-full text-left cursor-pointer"
           >

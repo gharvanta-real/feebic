@@ -4,14 +4,18 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useUser } from "@/context/UserContext";
+import { useClerk } from "@clerk/nextjs";
+import { filterByRole, mainNavLinks, roleLabel, settingsLinks, type AccountRole } from "@/lib/roleAccess";
 
 export default function SettingsMainPage() {
   const router = useRouter();
   const { user, updateProfile, showToast } = useUser();
+  const { signOut } = useClerk();
 
   const [pushNotifs, setPushNotifs] = useState(true);
   const [emailNotifs, setEmailNotifs] = useState(false);
   const [privateProfile, setPrivateProfile] = useState(false);
+  const [switchingRole, setSwitchingRole] = useState<"fan" | "creator" | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -30,33 +34,34 @@ export default function SettingsMainPage() {
     showToast(`${label} ${next ? "enabled" : "disabled"}`);
   };
 
-  const handleRoleSwitch = (role: "fan" | "creator") => {
-    if (!user || user.role === role) return;
-    updateProfile({ role });
-    showToast(`Switched to ${role === "creator" ? "Creator" : "Visitor"} mode`);
+  const handleRoleSwitch = async (role: "fan" | "creator") => {
+    if (!user || user.role === role || switchingRole) return;
+
+    setSwitchingRole(role);
+    showToast(`Switching to ${role === "creator" ? "Creator" : "Visitor"} mode...`);
+    const ok = await updateProfile({ role });
+    setSwitchingRole(null);
+
+    if (ok) {
+      showToast(`${role === "creator" ? "Creator" : "Visitor"} mode is active`);
+      router.refresh();
+    }
   };
 
   const handleLogout = () => {
-    localStorage.setItem("ch_logged_out", "true");
+    signOut();
     showToast("Logged out successfully");
-    setTimeout(() => router.push("/login"), 500);
   };
 
   if (!user) return null;
 
-  const menu = [
-    { href: "/settings/edit-profile", label: "Edit Profile", icon: "edit", desc: "Name, handle, bio, avatar", role: ["fan", "creator"] },
-    { href: "/settings/email", label: "Email", icon: "mail", desc: "Update linked email", role: ["fan", "creator"] },
-    { href: "/settings/security", label: "Security & Password", icon: "lock", desc: "2FA, biometrics, password", role: ["fan", "creator"] },
-    { href: "/settings/blocked-users", label: "Blocked Users", icon: "block", desc: "Manage restricted accounts", role: ["fan", "creator"] },
-    { href: "/settings/monetization", label: "Monetization", icon: "monetization_on", desc: "Pricing, bank payout", role: ["creator"] },
-    { href: "/settings/verification", label: "Identity Verification", icon: "verified_user", desc: "KYC records, badge", role: ["creator"] },
-    { href: "/settings/referrals", label: "Referrals", icon: "group", desc: "Earn from creator invites", role: ["creator"] },
-    { href: "/settings/payments", label: "Payment Methods", icon: "credit_card", desc: "Cards for subscriptions", role: ["fan", "creator"] },
-    { href: "/settings/delete-account", label: "Delete Account", icon: "delete_forever", desc: "Permanently erase profile", role: ["fan", "creator"] },
-  ];
-
-  const visibleMenu = menu.filter((item) => item.role.includes(user.role));
+  const visibleMenu = filterByRole(settingsLinks, user.role);
+  const roleGuide = (["fan", "creator"] as AccountRole[]).map((role) => ({
+    role,
+    label: roleLabel[role],
+    tools: filterByRole(mainNavLinks, role).filter((item) => item.href !== "/settings").map((item) => item.label),
+    settings: filterByRole(settingsLinks, role).map((item) => item.label),
+  }));
 
   return (
     <div className="space-y-5">
@@ -98,36 +103,67 @@ export default function SettingsMainPage() {
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => handleRoleSwitch("fan")}
+              disabled={!!switchingRole}
               className={`py-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                 user.role === "fan"
                   ? "border-primary bg-primary/5 text-primary"
                   : "border-border text-text-muted hover:border-text-muted"
+              } ${switchingRole ? "cursor-wait opacity-70" : ""
               }`}
             >
               <span className="material-symbols-outlined text-[17px]" style={user.role === "fan" ? { fontVariationSettings: "'FILL' 1" } : undefined}>
                 visibility
               </span>
-              Visitor
-              {user.role === "fan" && (
+              {switchingRole === "fan" ? "Switching..." : "Visitor"}
+              {user.role === "fan" && !switchingRole && (
                 <span className="material-symbols-outlined text-[14px]">check</span>
               )}
             </button>
             <button
               onClick={() => handleRoleSwitch("creator")}
+              disabled={!!switchingRole}
               className={`py-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                 user.role === "creator"
                   ? "border-primary bg-primary/5 text-primary"
                   : "border-border text-text-muted hover:border-text-muted"
+              } ${switchingRole ? "cursor-wait opacity-70" : ""
               }`}
             >
               <span className="material-symbols-outlined text-[17px]" style={user.role === "creator" ? { fontVariationSettings: "'FILL' 1" } : undefined}>
                 star
               </span>
-              Creator
-              {user.role === "creator" && (
+              {switchingRole === "creator" ? "Switching..." : "Creator"}
+              {user.role === "creator" && !switchingRole && (
                 <span className="material-symbols-outlined text-[14px]">check</span>
               )}
             </button>
+          </div>
+        </div>
+
+        <div className="mt-4 border border-border rounded-2xl p-4 space-y-4">
+          <div>
+            <p className="text-xs font-bold text-text-main">Mode Guide</p>
+            <p className="text-[10px] text-text-muted">Tools are separated by account mode to keep actions clear.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {roleGuide.map((guide) => (
+              <div
+                key={guide.role}
+                className={`rounded-xl border p-3 ${
+                  user.role === guide.role ? "border-primary bg-primary/5" : "border-border bg-background"
+                }`}
+              >
+                <div className="mb-2 flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[17px] text-primary">
+                    {guide.role === "creator" ? "workspace_premium" : "visibility"}
+                  </span>
+                  <p className="text-xs font-black text-text-main">{guide.label}</p>
+                </div>
+                <p className="text-[10px] font-bold text-text-muted leading-relaxed">
+                  {guide.tools.join(", ")}
+                </p>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -199,20 +235,31 @@ export default function SettingsMainPage() {
               <button
                 key={r}
                 onClick={() => handleRoleSwitch(r)}
+                disabled={!!switchingRole}
                 className={`py-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                   user.role === r
                     ? "border-primary bg-primary/5 text-primary"
                     : "border-border text-text-muted hover:border-text-muted"
-                }`}
+                } ${switchingRole ? "cursor-wait opacity-70" : ""}`}
               >
                 <span className="material-symbols-outlined text-[17px]" style={user.role === r ? { fontVariationSettings: "'FILL' 1" } : undefined}>
                   {r === "fan" ? "visibility" : "star"}
                 </span>
-                {r === "fan" ? "Visitor" : "Creator"}
-                {user.role === r && <span className="material-symbols-outlined text-[14px]">check</span>}
+                {switchingRole === r ? "Switching..." : r === "fan" ? "Visitor" : "Creator"}
+                {user.role === r && !switchingRole && <span className="material-symbols-outlined text-[14px]">check</span>}
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="border border-border rounded-2xl p-4 space-y-3">
+          <p className="text-xs font-bold text-text-main">Mode Guide</p>
+          {roleGuide.map((guide) => (
+            <div key={guide.role} className="rounded-xl border border-border bg-background p-3">
+              <p className="text-xs font-black text-text-main">{guide.label}</p>
+              <p className="mt-1 text-[10px] font-bold leading-relaxed text-text-muted">{guide.tools.join(", ")}</p>
+            </div>
+          ))}
         </div>
 
         {/* Mobile preference toggles */}
@@ -253,7 +300,7 @@ export default function SettingsMainPage() {
               <span className="material-symbols-outlined text-primary text-[22px] shrink-0">{item.icon}</span>
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-bold text-text-main leading-none mb-0.5">{item.label}</p>
-                <p className="text-[10px] text-text-muted leading-none truncate">{item.desc}</p>
+                <p className="text-[10px] text-text-muted leading-none truncate">{item.description}</p>
               </div>
               <span className="material-symbols-outlined text-text-muted text-[18px] shrink-0">chevron_right</span>
             </Link>

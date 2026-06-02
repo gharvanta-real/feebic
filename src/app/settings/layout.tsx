@@ -6,6 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { MobileHeader } from "@/components/layout/MobileHeader";
 import { useUser } from "@/context/UserContext";
+import { useClerk } from "@clerk/nextjs";
+import { filterByRole, roleHome, roleLabel, settingsLinks } from "@/lib/roleAccess";
 
 interface SettingsLayoutProps {
   children: React.ReactNode;
@@ -15,22 +17,13 @@ export default function SettingsLayout({ children }: SettingsLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user } = useUser();
+  const { signOut } = useClerk();
 
   if (!user) return null;
 
-  const menu = [
-    { href: "/settings/edit-profile", label: "Edit Profile", icon: "edit", role: ["fan", "creator"] },
-    { href: "/settings/email", label: "Email Notifications", icon: "mail", role: ["fan", "creator"] },
-    { href: "/settings/security", label: "Security & Password", icon: "lock", role: ["fan", "creator"] },
-    { href: "/settings/blocked-users", label: "Blocked Users", icon: "block", role: ["fan", "creator"] },
-    { href: "/settings/monetization", label: "Monetization Settings", icon: "monetization_on", role: ["creator"] },
-    { href: "/settings/verification", label: "Identity Verification", icon: "verified_user", role: ["creator"] },
-    { href: "/settings/referrals", label: "Referrals Program", icon: "group", role: ["creator"] },
-    { href: "/settings/payments", label: "Payment Methods", icon: "credit_card", role: ["fan", "creator"] },
-    { href: "/settings/delete-account", label: "Delete Account", icon: "delete_forever", role: ["fan", "creator"] }
-  ];
-
-  const visibleMenu = menu.filter((item) => item.role.includes(user.role));
+  const visibleMenu = filterByRole(settingsLinks, user.role);
+  const currentSection = settingsLinks.find((item) => pathname === item.href);
+  const isSectionAllowed = !currentSection || currentSection.roles.includes(user.role);
 
   const isActive = (href: string) => {
     return pathname === href;
@@ -86,7 +79,7 @@ export default function SettingsLayout({ children }: SettingsLayoutProps) {
           {/* Logout at sidebar bottom */}
           <div className="p-3 border-t border-border mt-auto">
             <button
-              onClick={() => { localStorage.setItem("ch_logged_out", "true"); router.push("/login"); }}
+              onClick={() => { signOut(); }}
               className="w-full px-3 py-2 flex items-center gap-2.5 rounded-xl border border-border text-xs font-bold text-text-muted hover:border-accent hover:text-accent transition-colors cursor-pointer"
             >
               <span className="material-symbols-outlined text-[19px]">logout</span>
@@ -100,7 +93,33 @@ export default function SettingsLayout({ children }: SettingsLayoutProps) {
           pathname === "/settings" ? "max-sm:hidden" : "max-sm:w-full"
         }`}>
           <div className="app-page-readable">
-            {children}
+            {isSectionAllowed ? (
+              children
+            ) : (
+              <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center">
+                <span className="material-symbols-outlined text-[44px] text-primary">lock</span>
+                <div className="space-y-2">
+                  <h1 className="text-lg font-black text-text-main">Settings section restricted</h1>
+                  <p className="text-sm font-medium text-text-muted">
+                    {currentSection?.label} is available only in {currentSection?.roles.map((role) => roleLabel[role]).join(" or ")} mode.
+                  </p>
+                </div>
+                <div className="flex flex-wrap justify-center gap-2">
+                  <button
+                    onClick={() => router.push("/settings")}
+                    className="rounded-full bg-primary px-5 py-2 text-xs font-black text-white"
+                  >
+                    Switch Mode
+                  </button>
+                  <button
+                    onClick={() => router.push(roleHome[user.role])}
+                    className="rounded-full border border-border px-5 py-2 text-xs font-black text-text-main"
+                  >
+                    Go Back
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

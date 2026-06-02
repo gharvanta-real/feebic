@@ -6,6 +6,8 @@ import { MobileHeader } from "@/components/layout/MobileHeader";
 import { useUser } from "@/context/UserContext";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { PaymentModal } from "@/components/ui/PaymentModal";
+import { mockDb } from "@/lib/mockDb";
+import { apiClient } from "@/lib/apiClient";
 
 interface LiveComment {
   id: string;
@@ -141,25 +143,33 @@ export default function LiveStreamingPage() {
     setShowTipPanel(false);
   };
 
-  const handlePaymentConfirm = (tipMsg?: string) => {
+  const handlePaymentConfirm = async (tipMsg?: string, paymentSource: "wallet" | "card" = "wallet") => {
     if (!user) return;
     const msg = tipMsg || "Contributed to stream!";
     
-    // Deduct balance from fan wallet and credit creator
-    adjustBalance(-paymentPrice, `Tip to @demirose (Live)`, 'demirose');
+    if (paymentSource === "card") {
+      try {
+        await apiClient.post("/wallet/deposit", { amount: paymentPrice });
+      } catch (err: any) {
+        showToast(err.message || "Card deposit failed");
+        return;
+      }
+    }
+
+    await adjustBalance(-paymentPrice, msg, "demirose");
 
     const newComment: LiveComment = {
       id: "lc_tip_" + Date.now(),
       name: user.displayName,
       avatar: user.avatar,
-      text: `[Contributed Payout Tip $${paymentPrice.toFixed(2)}] ${msg}`,
+      text: `[Contributed Payout Tip ₹${paymentPrice.toFixed(2)}] ${msg}`,
       isTip: true,
       amount: paymentPrice
     };
 
     setLiveComments([...liveComments, newComment]);
     setGoalCurrent((prev) => Math.min(goalTarget, prev + paymentPrice));
-    showToast(`Successfully tipped $${paymentPrice.toFixed(2)} to live stream!`);
+    showToast(`Successfully tipped ₹${paymentPrice.toFixed(2)} to live stream!`);
     setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
   };
 
@@ -227,8 +237,8 @@ export default function LiveStreamingPage() {
                   />
                 </div>
                 <div className="flex justify-between items-center text-[9px] font-bold text-white/70">
-                  <span>${goalCurrent} raised</span>
-                  <span>Goal: ${goalTarget}</span>
+                  <span>₹{goalCurrent} raised</span>
+                  <span>Goal: ₹{goalTarget}</span>
                 </div>
               </div>
 
@@ -367,7 +377,7 @@ export default function LiveStreamingPage() {
                         </p>
                         {isTipCard && (
                           <span className="bg-primary text-white text-[8px] font-extrabold px-2.5 py-0.5 rounded-full select-none uppercase tracking-wider ml-2">
-                            Tipped ${comment.amount?.toFixed(2)}
+                            Tipped ₹{comment.amount?.toFixed(2)}
                           </span>
                         )}
                       </div>
@@ -399,13 +409,13 @@ export default function LiveStreamingPage() {
                           {[5, 10, 25, 50].map(amt => (
                             <button key={amt} onClick={() => triggerTip(amt)}
                               className="py-1.5 border border-border rounded-lg text-[10px] font-black text-text-main hover:border-success hover:text-success transition-colors cursor-pointer">
-                              ${amt}
+                              ₹{amt}
                             </button>
                           ))}
                         </div>
                         <div className="flex gap-1.5">
                           <div className="flex-grow flex items-center bg-background border border-border rounded-lg px-2 py-1 focus-within:border-success">
-                            <span className="text-[10px] font-bold text-text-muted mr-0.5">$</span>
+                            <span className="text-[10px] font-bold text-text-muted mr-0.5">₹</span>
                             <input
                               type="number"
                               min="1"

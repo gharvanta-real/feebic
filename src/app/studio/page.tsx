@@ -5,7 +5,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { MobileHeader } from "@/components/layout/MobileHeader";
 import { useUser } from "@/context/UserContext";
 import { RoleGuard } from "@/components/layout/RoleGuard";
-import { Post } from "@/lib/mockDb";
+import { apiClient } from "@/lib/apiClient";
 
 interface TopFan {
   name: string;
@@ -29,35 +29,70 @@ export default function CreatorStudioPage() {
   const [earnings, setEarnings] = useState("14280.50");
   const [subscribers, setSubscribers] = useState("1248");
   const [postCount, setPostCount] = useState("48");
+  const [directTips, setDirectTips] = useState("0.00");
+  const [totalLikes, setTotalLikes] = useState("0");
+  const [totalComments, setTotalComments] = useState("0");
   const [isBankLinked, setIsBankLinked] = useState(false);
-
-  // Mock analytics arrays (Creator Hub mindset)
-  const topFans: TopFan[] = [
-    { name: "Demi Rose", username: "demirose", avatar: "/assets/0c0bf4c58678d852ea7588ef1045309e.png", totalContributed: 420.00, joinedDate: "Jan 2026" },
-    { name: "Lana Rhoades", username: "lanarhoades", avatar: "/assets/00dcbdc82244f0ba0d9f0e475c7e7780.png", totalContributed: 380.00, joinedDate: "Feb 2026" },
-    { name: "Austin Wolf", username: "austinwolf", avatar: "/assets/5dc72593d711173af1fe7ab74be0fa56.png", totalContributed: 180.00, joinedDate: "Mar 2026" }
-  ];
-
-  const topPosts: TopPost[] = [
-    { title: "Chest & Arms pump split workout video", earnings: 480.00, likes: 1100, type: "video" },
-    { title: "Exclusive Miami beach photoset series", earnings: 320.00, likes: 2500, type: "image" },
-    { title: "Behind the scenes recording vlog clips", earnings: 210.00, likes: 1200, type: "video" }
-  ];
+  const [topFans, setTopFans] = useState<TopFan[]>([]);
+  const [topPosts, setTopPosts] = useState<TopPost[]>([]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setTimeout(() => {
-        setEarnings(parseFloat(localStorage.getItem("ch_earnings") || "14280.50").toFixed(2));
-        setSubscribers(localStorage.getItem("ch_subscribers") || "1248");
-        
-        const posts = JSON.parse(localStorage.getItem("ch_posts") || "[]");
-        const ownPosts = posts.filter((p: Post) => p.creatorUsername === (user?.username || "arivera"));
-        setPostCount(ownPosts.length > 0 ? ownPosts.length.toString() : "48");
-        
-        setIsBankLinked(localStorage.getItem("ch_bank_linked") === "true");
-      }, 0);
-    }
-  }, []);
+    if (typeof window === "undefined" || !user) return;
+
+    const refreshAnalytics = async () => {
+      const [wallet, posts, creator, bank] = await Promise.all([
+        apiClient.get<{ transactions: { amount: number; type: string; title: string }[] }>("/wallet"),
+        apiClient.get<any[]>("/posts"),
+        apiClient.get<any>(`/users/creator/${user.username}`),
+        apiClient.get<{ linked?: boolean }>("/wallet/bank").catch(() => ({ linked: false })),
+      ]);
+
+      const creatorPosts = posts.filter((post) => (post.creator_username || post.creatorUsername) === user.username);
+      const positiveTransactions = wallet.transactions.filter((tx) => tx.amount > 0);
+      const tipTransactions = positiveTransactions.filter((tx) => tx.type === "tip");
+      const gross = positiveTransactions.reduce((sum, tx) => sum + tx.amount, 0);
+      const tips = tipTransactions.reduce((sum, tx) => sum + tx.amount, 0);
+
+      setEarnings(gross.toFixed(2));
+      setSubscribers(String(creator.fans_count || 0));
+      setPostCount(String(creatorPosts.length));
+      setDirectTips(tips.toFixed(2));
+      setTotalLikes(creatorPosts.reduce((sum, post) => sum + (post.likes || 0), 0).toLocaleString());
+      setTotalComments(creatorPosts.reduce((sum, post) => sum + (post.comments_count || post.commentsCount || 0), 0).toLocaleString());
+      setTopFans(creator.top_fans || []);
+      setTopPosts(
+        creatorPosts
+          .map((post) => ({
+            title: post.content || "Untitled post",
+            earnings: post.is_unlocked || post.isUnlocked ? post.price || 0 : 0,
+            likes: post.likes || 0,
+            type: post.media_type || post.mediaType || "image",
+          }))
+          .sort((a, b) => b.likes - a.likes)
+          .slice(0, 5)
+      );
+      setIsBankLinked(!!bank?.linked);
+    };
+
+    window.setTimeout(() => {
+      refreshAnalytics().catch(() => {});
+    }, 0);
+    window.addEventListener("ch_posts_updated", refreshAnalytics);
+    window.addEventListener("ch_post_liked", refreshAnalytics);
+    window.addEventListener("ch_comment_added", refreshAnalytics);
+    window.addEventListener("ch_creator_analytics_updated", refreshAnalytics);
+    window.addEventListener("ch_subscriptions_updated", refreshAnalytics);
+    window.addEventListener("ch_wallet_updated", refreshAnalytics);
+
+    return () => {
+      window.removeEventListener("ch_posts_updated", refreshAnalytics);
+      window.removeEventListener("ch_post_liked", refreshAnalytics);
+      window.removeEventListener("ch_comment_added", refreshAnalytics);
+      window.removeEventListener("ch_creator_analytics_updated", refreshAnalytics);
+      window.removeEventListener("ch_subscriptions_updated", refreshAnalytics);
+      window.removeEventListener("ch_wallet_updated", refreshAnalytics);
+    };
+  }, [user]);
 
   return (
     <RoleGuard allowedRoles={["creator"]}>
@@ -80,7 +115,7 @@ export default function CreatorStudioPage() {
               {/* Earnings Widget */}
               <div className="bg-surface border border-border p-4.5 rounded-2xl shadow-sm space-y-1 relative overflow-hidden">
                 <p className="text-[9px] text-text-muted font-black uppercase tracking-wider">Gross Payouts</p>
-                <h3 className="text-lg font-black text-success">${earnings}</h3>
+                <h3 className="text-lg font-black text-success">₹{earnings}</h3>
                 <p className="text-[9px] text-text-muted font-semibold leading-none">85% Creator split share</p>
                 <span className="absolute bottom-2 right-2 material-symbols-outlined text-[24px] text-success/15" style={{ fontVariationSettings: "'FILL' 1" }}>
                   payments
@@ -100,8 +135,8 @@ export default function CreatorStudioPage() {
               {/* Tips Widget */}
               <div className="bg-surface border border-border p-4.5 rounded-2xl shadow-sm space-y-1 relative overflow-hidden">
                 <p className="text-[9px] text-text-muted font-black uppercase tracking-wider">Direct Tips</p>
-                <h3 className="text-lg font-black text-text-main">$3,420.00</h3>
-                <p className="text-[9px] text-text-muted font-semibold leading-none">24.5% total gross earnings</p>
+                <h3 className="text-lg font-black text-text-main">₹{directTips}</h3>
+                <p className="text-[9px] text-text-muted font-semibold leading-none">{totalComments} comments across posts</p>
                 <span className="absolute bottom-2 right-2 material-symbols-outlined text-[24px] text-text-main/10" style={{ fontVariationSettings: "'FILL' 1" }}>
                   wallet
                 </span>
@@ -111,7 +146,7 @@ export default function CreatorStudioPage() {
               <div className="bg-surface border border-border p-4.5 rounded-2xl shadow-sm space-y-1 relative overflow-hidden">
                 <p className="text-[9px] text-text-muted font-black uppercase tracking-wider">Total Posts</p>
                 <h3 className="text-lg font-black text-text-main">{postCount} updates</h3>
-                <p className="text-[9px] text-text-muted font-semibold leading-none">48.5 GB media usage size</p>
+                <p className="text-[9px] text-text-muted font-semibold leading-none">{totalLikes} total likes</p>
                 <span className="absolute bottom-2 right-2 material-symbols-outlined text-[24px] text-text-main/10" style={{ fontVariationSettings: "'FILL' 1" }}>
                   grid_view
                 </span>
@@ -168,7 +203,9 @@ export default function CreatorStudioPage() {
                 </h2>
 
                 <div className="space-y-4">
-                  {topFans.map((fan) => (
+                  {topFans.length === 0 ? (
+                    <p className="text-xs text-text-muted py-6 text-center">Supporter data appears after subscriptions, tips, unlocks, or fundraiser contributions.</p>
+                  ) : topFans.map((fan) => (
                     <div key={fan.username} className="flex justify-between items-center gap-3">
                       <div className="flex items-center gap-3 min-w-0">
                         <img
@@ -182,7 +219,7 @@ export default function CreatorStudioPage() {
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <p className="text-xs font-black text-success leading-none mb-0.75">${fan.totalContributed.toFixed(2)}</p>
+                        <p className="text-xs font-black text-success leading-none mb-0.75">₹{fan.totalContributed.toFixed(2)}</p>
                         <p className="text-[8px] text-text-muted uppercase tracking-wider font-bold">Total Tipped</p>
                       </div>
                     </div>
@@ -198,7 +235,9 @@ export default function CreatorStudioPage() {
                 </h2>
 
                 <div className="space-y-4">
-                  {topPosts.map((post, idx) => (
+                  {topPosts.length === 0 ? (
+                    <p className="text-xs text-text-muted py-6 text-center">Publish content and receive engagement to populate post analytics.</p>
+                  ) : topPosts.map((post, idx) => (
                     <div key={idx} className="flex justify-between items-center gap-3">
                       <div className="min-w-0 space-y-1">
                         <p className="text-xs font-black text-text-main truncate" title={post.title}>
@@ -211,7 +250,7 @@ export default function CreatorStudioPage() {
                           <span>{post.likes} Likes</span>
                         </p>
                       </div>
-                      <p className="text-xs font-black text-success shrink-0">${post.earnings.toFixed(2)}</p>
+                      <p className="text-xs font-black text-success shrink-0">₹{post.earnings.toFixed(2)}</p>
                     </div>
                   ))}
                 </div>

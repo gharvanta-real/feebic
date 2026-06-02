@@ -3,35 +3,33 @@
 import React, { useState } from "react";
 import { useUser } from "@/context/UserContext";
 import { useRouter } from "next/navigation";
+import { apiClient } from "@/lib/apiClient";
+import { useClerk } from "@clerk/nextjs";
 
 export default function DeleteAccountSettingsPage() {
   const router = useRouter();
   const { showToast } = useUser();
+  const { signOut } = useClerk();
   const [password, setPassword] = useState("");
   const [confirmed, setConfirmed] = useState(false);
 
-  const handleDelete = (e: React.FormEvent) => {
+  const handleDelete = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!confirmed) {
       showToast("Please confirm account deletion checking the checkbox first");
       return;
     }
 
-    const stored = localStorage.getItem("ch_user_password") || "password123";
-    if (password !== stored) {
-      showToast("Your confirmation password is incorrect");
-      return;
+    try {
+      await apiClient.delete("/users/account", { password });
+
+      showToast("Account deleted successfully. We are sorry to see you go!");
+      setTimeout(() => {
+        signOut();
+      }, 1000);
+    } catch (err: any) {
+      showToast(err.message || "Your confirmation password is incorrect");
     }
-
-    // Wipe all local records and redirect
-    const preservedTheme = localStorage.getItem("ch_theme");
-    localStorage.clear();
-    if (preservedTheme) localStorage.setItem("ch_theme", preservedTheme);
-
-    showToast("Account deleted successfully. We are sorry to see you go!");
-    setTimeout(() => {
-      router.push("/");
-    }, 1000);
   };
 
   return (

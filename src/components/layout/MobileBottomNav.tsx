@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useUser } from "@/context/UserContext";
+import { filterByRole, mobileNavLinks } from "@/lib/roleAccess";
 
 export const MobileBottomNav: React.FC = () => {
   const pathname = usePathname();
@@ -11,23 +12,7 @@ export const MobileBottomNav: React.FC = () => {
 
   if (!user) return null;
 
-  const tabs = [
-    { href: "/", label: "Feed", icon: "home", key: "home", role: ["fan", "creator"] },
-    { href: "/explore", label: "Explore", icon: "explore", key: "explore", role: ["fan"] },
-    { href: "/chat", label: "Chat", icon: "chat", key: "chat", role: ["fan", "creator"] },
-    { href: "/notifications", label: "Alerts", icon: "notifications", key: "notifications", role: ["fan", "creator"], badge: true },
-    { href: "/profile", label: "Profile", icon: "person", key: "profile", role: ["fan", "creator"] }
-  ];
-
-  // If a creator is logged in, replace /explore with /studio inside the mobile bottom navigation
-  const visibleTabs = tabs
-    .map((tab) => {
-      if (user.role === "creator" && tab.href === "/explore") {
-        return { href: "/studio", label: "Studio", icon: "dashboard", key: "studio", role: ["creator"] };
-      }
-      return tab;
-    })
-    .filter((tab) => tab.role.includes(user.role));
+  const visibleTabs = filterByRole(mobileNavLinks, user.role);
 
   const isTabActive = (href: string) => {
     if (href === "/") {
@@ -60,7 +45,7 @@ export const MobileBottomNav: React.FC = () => {
             <span className="text-[10px] leading-none">{t.label}</span>
 
             {/* Premium Dynamic Notification Badge */}
-            {"badge" in t && t.badge && unreadNotificationsCount > 0 && (
+            {t.href === "/notifications" && unreadNotificationsCount > 0 && (
               <span className="absolute right-[14px] top-[2px] h-[7px] w-[7px] rounded-full bg-accent border border-surface"></span>
             )}
           </Link>
