@@ -465,7 +465,7 @@ export default function CreatePostPage() {
                         : "bg-background border border-border text-text-muted"
                     }`}
                   >
-                    "3"
+                    3
                   </div>
                   <div>
                     <p className="text-xs font-black text-text-main leading-none">Review</p>
