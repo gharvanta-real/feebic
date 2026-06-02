@@ -476,7 +476,7 @@ export default function CreatePostPage() {
               </div>
 
               {/* Step indicator tag */}
-              <div className="text-[10px] font-black uppercase tracking-wider px-3 py-1 bg-background border border-border rounded-full text-text-muted select-none">
+              <div className="text-[10px] font-black tracking-wider px-3 py-1 bg-background border border-border rounded-full text-text-muted select-none whitespace-nowrap">
                 Step {step} of 3
               </div>
             </div>
@@ -505,7 +505,7 @@ export default function CreatePostPage() {
                   
                   {/* Caption input */}
                   <div className="space-y-1.5">
-                    <label className="block text-[10px] font-black text-text-muted uppercase tracking-wider select-none">
+                    <label className="block text-[10px] font-black text-text-muted tracking-wider select-none">
                       Caption Description *
                     </label>
                     <textarea
@@ -527,7 +527,7 @@ export default function CreatePostPage() {
 
                   {/* Tags input */}
                   <div className="space-y-1.5">
-                    <label className="block text-[10px] font-black text-text-muted uppercase tracking-wider select-none">
+                    <label className="block text-[10px] font-black text-text-muted tracking-wider select-none">
                       Post Tags (Comma separated)
                     </label>
                     <input
@@ -630,7 +630,7 @@ export default function CreatePostPage() {
 
                       {isPremium && (
                         <div className="space-y-2 animate-fade-in select-none">
-                          <label className="block text-[9px] font-black text-text-muted uppercase tracking-wider leading-none">
+                          <label className="block text-[9px] font-black text-text-muted tracking-wider leading-none">
                             Lock Price (INR)
                           </label>
                           <div className="relative flex items-center bg-background border border-border rounded-xl px-3.5 py-2 focus-within:border-primary transition-all">
@@ -684,7 +684,7 @@ export default function CreatePostPage() {
                     {hasFundraiser && (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in">
                         <div className="space-y-1.5">
-                          <label className="block text-[9px] font-black text-text-muted uppercase tracking-wider select-none">
+                          <label className="block text-[9px] font-black text-text-muted tracking-wider select-none">
                             Fundraiser Goal Title
                           </label>
                           <input
@@ -697,7 +697,7 @@ export default function CreatePostPage() {
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <label className="block text-[9px] font-black text-text-muted uppercase tracking-wider select-none">
+                          <label className="block text-[9px] font-black text-text-muted tracking-wider select-none">
                             Target Amount (₹)
                           </label>
                           <div className="relative flex items-center bg-background border border-border rounded-xl px-3 py-1.5 focus-within:border-primary transition-all">
@@ -1015,7 +1015,7 @@ export default function CreatePostPage() {
                     <div className="lg:col-span-3 space-y-4">
                       
                       <div className="flex justify-between items-center select-none">
-                        <p className="text-[10px] text-text-muted font-black uppercase tracking-wider flex items-center gap-1">
+                        <p className="text-[10px] text-text-muted font-black tracking-wider flex items-center gap-1">
                           <span className="material-symbols-outlined text-[15px] text-primary animate-pulse">preview</span>
                           <span>Live Feed Simulator (Preview)</span>
                         </p>
@@ -1025,7 +1025,7 @@ export default function CreatePostPage() {
                             <button
                               type="button"
                               onClick={() => setSimulatorView("locked")}
-                              className={`px-3 py-1 rounded-full text-[9px] font-black uppercase transition-all cursor-pointer ${
+                              className={`px-3 py-1 rounded-full text-[9px] font-black transition-all cursor-pointer ${
                                 simulatorView === "locked"
                                   ? "bg-accent text-white"
                                   : "text-text-muted hover:text-text-main"
@@ -1036,7 +1036,7 @@ export default function CreatePostPage() {
                             <button
                               type="button"
                               onClick={() => setSimulatorView("unlocked")}
-                              className={`px-3 py-1 rounded-full text-[9px] font-black uppercase transition-all cursor-pointer ${
+                              className={`px-3 py-1 rounded-full text-[9px] font-black transition-all cursor-pointer ${
                                 simulatorView === "unlocked"
                                   ? "bg-success text-white"
                                   : "text-text-muted hover:text-text-main"
@@ -1053,7 +1053,7 @@ export default function CreatePostPage() {
                         
                         {/* Stepper indicators inside Card for scheduler */}
                         {isScheduled && scheduleDate && (
-                          <div className="bg-primary/10 border border-primary/20 text-primary px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 w-fit">
+                          <div className="bg-primary/10 border border-primary/20 text-primary px-3 py-1 rounded-full text-[9px] font-black tracking-wider flex items-center gap-1.5 w-fit">
                             <span className="material-symbols-outlined text-[13px]">schedule</span>
                             <span>Scheduled for {new Date(scheduleDate).toLocaleString()}</span>
                           </div>
@@ -1093,7 +1093,7 @@ export default function CreatePostPage() {
                         {/* Interactive Poll inside Simulator */}
                         {hasPoll && pollQuestion.trim() && (
                           <div className="border border-border rounded-2xl p-4 space-y-2.5 bg-background/20">
-                            <p className="text-[10px] font-black text-text-muted uppercase tracking-wider">{pollQuestion}</p>
+                            <p className="text-[10px] font-black text-text-muted tracking-wider">{pollQuestion}</p>
                             <div className="space-y-1.5">
                               {pollOptions
                                 .filter((opt) => opt.trim() !== "")
@@ -1114,7 +1114,7 @@ export default function CreatePostPage() {
                         {hasFundraiser && fundraiserTitle.trim() && (
                           <div className="border border-border rounded-2xl p-4 space-y-2 bg-background/20">
                             <div className="flex justify-between items-center text-[10px]">
-                              <span className="font-black text-text-muted uppercase tracking-wider">Fundraiser: {fundraiserTitle}</span>
+                              <span className="font-black text-text-muted tracking-wider">Fundraiser: {fundraiserTitle}</span>
                               <span className="font-black text-primary">₹0 / ₹{fundraiserGoal}</span>
                             </div>
                             <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">
@@ -1148,7 +1148,7 @@ export default function CreatePostPage() {
 
                               {/* Watermark security overlay */}
                               <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden opacity-10">
-                                <span className="text-[14px] font-black uppercase tracking-widest text-white transform -rotate-12 whitespace-nowrap">
+                                <span className="text-[14px] font-black tracking-widest text-white transform -rotate-12 whitespace-nowrap">
                                   feebic.in/@{user?.username}
                                 </span>
                               </div>
@@ -1176,7 +1176,7 @@ export default function CreatePostPage() {
 
                                 <button
                                   type="button"
-                                  className="bg-primary text-white text-[10px] font-black uppercase tracking-wider px-5 py-2 rounded-full cursor-not-allowed flex items-center gap-1.5 shadow-sm mt-1"
+                                  className="bg-primary text-white text-[10px] font-black tracking-wider px-5 py-2 rounded-full cursor-not-allowed flex items-center gap-1.5 shadow-sm mt-1"
                                 >
                                   <span className="material-symbols-outlined text-[13px]">lock_open</span>
                                   <span>Unlock for ₹{price}</span>
@@ -1267,7 +1267,7 @@ export default function CreatePostPage() {
                     <button
                       type="button"
                       onClick={handleNext}
-                      className="px-6 py-2.5 bg-primary hover:bg-primary-hover active:scale-95 text-white text-xs font-black uppercase tracking-wider rounded-full transition-all shadow flex items-center gap-1.5 cursor-pointer"
+                      className="px-6 py-2.5 bg-primary hover:bg-primary-hover active:scale-95 text-white text-xs font-black tracking-wider rounded-full transition-all shadow flex items-center gap-1.5 cursor-pointer"
                     >
                       <span>Next Step</span>
                       <span className="material-symbols-outlined text-[16px] font-black">arrow_forward</span>
@@ -1277,7 +1277,7 @@ export default function CreatePostPage() {
                       type="button"
                       onClick={handlePublish}
                       disabled={isPublishing}
-                      className={`bg-primary hover:bg-primary-hover active:scale-95 text-white text-xs font-black uppercase tracking-wider px-7 py-2.5 rounded-full transition-all shadow flex items-center gap-1.5 ${
+                      className={`bg-primary hover:bg-primary-hover active:scale-95 text-white text-xs font-black tracking-wider px-7 py-2.5 rounded-full transition-all shadow flex items-center gap-1.5 ${
                         isPublishing ? "cursor-wait opacity-70" : "cursor-pointer"
                       }`}
                     >
