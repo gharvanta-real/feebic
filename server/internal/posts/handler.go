@@ -17,13 +17,16 @@ import (
 )
 
 type CreatePostRequest struct {
-	Content    string                 `json:"content"`
-	MediaUrls  []string               `json:"media_urls"`
-	MediaType  string                 `json:"media_type"`
-	IsPremium  bool                   `json:"is_premium"`
-	Price      float64                `json:"price"`
-	Poll       map[string]interface{} `json:"poll"`
-	Fundraiser map[string]interface{} `json:"fundraiser"`
+	Content      string                 `json:"content"`
+	MediaUrls    []string               `json:"media_urls"`
+	MediaType    string                 `json:"media_type"`
+	IsPremium    bool                   `json:"is_premium"`
+	Price        float64                `json:"price"`
+	Poll         map[string]interface{} `json:"poll"`
+	Fundraiser   map[string]interface{} `json:"fundraiser"`
+	TeaserUrl    string                 `json:"teaser_url"`
+	PublishAt    string                 `json:"publish_at"`
+	TargetListID string                 `json:"target_list_id"`
 }
 
 type CommentRequest struct {
@@ -68,10 +71,29 @@ func CreatePost(c *fiber.Ctx) error {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid fundraiser payload"})
 	}
 
+	var publishAt *time.Time
+	if req.PublishAt != "" {
+		if t, err := time.Parse(time.RFC3339, req.PublishAt); err == nil {
+			publishAt = &t
+		} else if t, err := time.Parse("2006-01-02T15:04", req.PublishAt); err == nil {
+			publishAt = &t
+		}
+	}
+
+	var targetListID *string
+	if req.TargetListID != "" {
+		targetListID = &req.TargetListID
+	}
+
+	var teaserUrl *string
+	if req.TeaserUrl != "" {
+		teaserUrl = &req.TeaserUrl
+	}
+
 	_, err = database.Pool.Exec(ctx,
-		`INSERT INTO posts (creator_id, content, media_urls, media_type, is_premium, price, poll, fundraiser) 
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		userID, req.Content, req.MediaUrls, req.MediaType, req.IsPremium, req.Price, pollJSON, fundraiserJSON,
+		`INSERT INTO posts (creator_id, content, media_urls, media_type, is_premium, price, poll, fundraiser, publish_at, teaser_url, target_list_id) 
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		userID, req.Content, req.MediaUrls, req.MediaType, req.IsPremium, req.Price, pollJSON, fundraiserJSON, publishAt, teaserUrl, targetListID,
 	)
 
 	if err != nil {
@@ -120,13 +142,19 @@ func GetFeed(c *fiber.Ctx) error {
 		        CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
 		        	SELECT 1 FROM post_unlocks pu WHERE pu.post_id = p.id AND pu.user_id = $1::uuid
 		        ) END AS is_unlocked,
-		        COALESCE(rp.username, '')
+		        COALESCE(rp.username, ''),
+		        p.publish_at, COALESCE(p.teaser_url, ''), COALESCE(p.target_list_id::text, '')
 		 FROM posts p
 		 JOIN profiles pr ON p.creator_id = pr.user_id
 		 LEFT JOIN profiles rp ON p.creator_id = rp.user_id
-		 WHERE CASE WHEN $1::uuid IS NULL THEN TRUE ELSE NOT EXISTS(
+		 WHERE (CASE WHEN $1::uuid IS NULL THEN TRUE ELSE NOT EXISTS(
 		 	 SELECT 1 FROM post_reports r WHERE r.post_id = p.id AND r.user_id = $1::uuid
-		 ) END
+		 ) END)
+		   AND (p.publish_at IS NULL OR p.publish_at <= NOW() OR p.creator_id = $1::uuid)
+		   AND (p.target_list_id IS NULL OR p.creator_id = $1::uuid OR CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
+		      SELECT 1 FROM custom_list_members clm 
+		      WHERE clm.list_id = p.target_list_id AND clm.user_id = $1::uuid
+		   ) END)
 		 ORDER BY p.created_at DESC`,
 		nullableUUID(viewerID),
 	)
@@ -146,11 +174,14 @@ func GetFeed(c *fiber.Ctx) error {
 		var likesCount, commentsCount int
 		var createdAt time.Time
 		var pollRaw, fundraiserRaw []byte
+		var publishAt *time.Time
+		var teaserUrl, targetListID string
 
 		err := rows.Scan(
 			&postID, &creatorID, &content, &mediaUrls, &mediaType,
 			&isPremium, &price, &pollRaw, &fundraiserRaw, &repostedFromID, &createdAt, &username, &displayName, &avatar,
 			&likesCount, &commentsCount, &isLiked, &isBookmarked, &isUnlocked, &repostedBy,
+			&publishAt, &teaserUrl, &targetListID,
 		)
 		if err != nil {
 			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to parse post row"})
@@ -191,6 +222,11 @@ func GetFeed(c *fiber.Ctx) error {
 		poll := decodePostPoll(pollRaw, viewerID)
 		fundraiser := decodeJSONMap(fundraiserRaw)
 
+		var publishAtStr interface{} = nil
+		if publishAt != nil {
+			publishAtStr = publishAt.Format(time.RFC3339)
+		}
+
 		feed = append(feed, fiber.Map{
 			"id":               postID,
 			"creator_id":       creatorID,
@@ -213,6 +249,9 @@ func GetFeed(c *fiber.Ctx) error {
 			"fundraiser":       fundraiser,
 			"reposted_from_id": emptyStringToNil(repostedFromID),
 			"reposted_by":      emptyStringToNil(repostedBy),
+			"publish_at":       publishAtStr,
+			"teaser_url":       emptyStringToNil(teaserUrl),
+			"target_list_id":   emptyStringToNil(targetListID),
 		})
 	}
 
@@ -802,7 +841,8 @@ func GetBookmarks(c *fiber.Ctx) error {
 		        CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
 		        	SELECT 1 FROM post_unlocks pu WHERE pu.post_id = p.id AND pu.user_id = $1::uuid
 		        ) END AS is_unlocked,
-		        COALESCE(rp.username, '')
+		        COALESCE(rp.username, ''),
+		        p.publish_at, COALESCE(p.teaser_url, ''), COALESCE(p.target_list_id::text, '')
 		 FROM posts p
 		 JOIN profiles pr ON p.creator_id = pr.user_id
 		 LEFT JOIN profiles rp ON p.creator_id = rp.user_id
@@ -829,11 +869,14 @@ func GetBookmarks(c *fiber.Ctx) error {
 		var likesCount, commentsCount int
 		var createdAt time.Time
 		var pollRaw, fundraiserRaw []byte
+		var publishAt *time.Time
+		var teaserUrl, targetListID string
 
 		err := rows.Scan(
 			&postID, &creatorID, &content, &mediaUrls, &mediaType,
 			&isPremium, &price, &pollRaw, &fundraiserRaw, &repostedFromID, &createdAt, &username, &displayName, &avatar,
 			&likesCount, &commentsCount, &isLiked, &isBookmarked, &isUnlocked, &repostedBy,
+			&publishAt, &teaserUrl, &targetListID,
 		)
 		if err != nil {
 			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to parse post row"})
@@ -872,6 +915,11 @@ func GetBookmarks(c *fiber.Ctx) error {
 		poll := decodePostPoll(pollRaw, userID)
 		fundraiser := decodeJSONMap(fundraiserRaw)
 
+		var publishAtStr interface{} = nil
+		if publishAt != nil {
+			publishAtStr = publishAt.Format(time.RFC3339)
+		}
+
 		feed = append(feed, fiber.Map{
 			"id":               postID,
 			"creator_id":       creatorID,
@@ -894,6 +942,9 @@ func GetBookmarks(c *fiber.Ctx) error {
 			"fundraiser":       fundraiser,
 			"reposted_from_id": emptyStringToNil(repostedFromID),
 			"reposted_by":      emptyStringToNil(repostedBy),
+			"publish_at":       publishAtStr,
+			"teaser_url":       emptyStringToNil(teaserUrl),
+			"target_list_id":   emptyStringToNil(targetListID),
 		})
 	}
 
