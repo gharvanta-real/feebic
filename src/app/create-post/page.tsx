@@ -474,11 +474,6 @@ export default function CreatePostPage() {
                 </div>
 
               </div>
-
-              {/* Step indicator tag */}
-              <div className="text-[10px] font-semibold tracking-wider px-3 py-1 bg-background border border-border rounded-full text-text-muted select-none whitespace-nowrap">
-                Step {step} of 3
-              </div>
             </div>
 
             {/* Core Wizard Body */}
