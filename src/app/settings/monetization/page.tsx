@@ -61,7 +61,7 @@ export default function MonetizationSettingsPage() {
     
     const success = await updateProfile({ subPrice: price });
     if (success) {
-      showToast(`Subscription price updated to $${price.toFixed(2)}/mo`);
+      showToast(`Subscription price updated to ₹${price.toFixed(2)}/mo`);
     }
   };
 
@@ -115,7 +115,7 @@ export default function MonetizationSettingsPage() {
       });
       showToast(
         `Private call settings updated: ${
-          callsEnabled ? `$${rate.toFixed(2)}/min calls active` : "Deactivated direct calls"
+          callsEnabled ? `₹${rate.toFixed(2)}/min calls active` : "Deactivated direct calls"
         }`
       );
       refreshUserProfile();
@@ -139,10 +139,10 @@ export default function MonetizationSettingsPage() {
           </h2>
           <div>
             <label className="block text-[11px] font-bold text-text-muted mb-1.5 ml-1 select-none">
-              Base Monthly Subscription Fee (USD)
+              Base Monthly Subscription Fee (INR)
             </label>
             <div className="relative flex items-center bg-background border border-border rounded-xl px-4 py-2.5 focus-within:border-primary transition-all">
-              <span className="text-xs font-bold text-text-muted mr-1 select-none">$</span>
+              <span className="text-xs font-bold text-text-muted mr-1 select-none">₹</span>
               <input
                 type="number"
                 step="0.01"
@@ -154,7 +154,7 @@ export default function MonetizationSettingsPage() {
               <span className="text-[10px] font-bold text-text-muted shrink-0 ml-1 select-none">/ month</span>
             </div>
             <p className="text-[10px] text-text-muted mt-2 leading-relaxed select-none">
-              Felbic enforces subscription tier caps: minimum <strong>$4.99</strong>, maximum <strong>$99.99</strong>.
+              Felbic enforces subscription tier caps: minimum <strong>₹4.99</strong>, maximum <strong>₹99.99</strong>.
             </p>
           </div>
           <button
@@ -308,7 +308,7 @@ export default function MonetizationSettingsPage() {
             {callsEnabled && (
               <span className="bg-success/10 text-success text-[8px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-0.5">
                 <span className="material-symbols-outlined text-[10px] font-bold">videocam</span>
-                <span>Active (${parseFloat(callPricePerMin).toFixed(2)}/min)</span>
+                <span>Active (₹{parseFloat(callPricePerMin).toFixed(2)}/min)</span>
               </span>
             )}
           </div>
@@ -335,9 +335,9 @@ export default function MonetizationSettingsPage() {
 
             {/* Price Per Minute input */}
             <div>
-              <label className="block text-[11px] font-bold text-text-muted mb-1.5 ml-1">Rate Per Minute (USD)</label>
+              <label className="block text-[11px] font-bold text-text-muted mb-1.5 ml-1">Rate Per Minute (INR)</label>
               <div className="relative flex items-center bg-background border border-border rounded-xl px-4 py-2.5 focus-within:border-primary transition-all">
-                <span className="text-xs font-bold text-text-muted mr-1 select-none">$</span>
+                <span className="text-xs font-bold text-text-muted mr-1 select-none">₹</span>
                 <input
                   type="number"
                   step="0.50"
@@ -352,7 +352,7 @@ export default function MonetizationSettingsPage() {
                 <span className="text-[10px] font-bold text-text-muted shrink-0 ml-1">/ minute</span>
               </div>
               <p className="text-[9px] text-text-muted mt-2 leading-relaxed">
-                Min <strong>$1.00/min</strong>, max <strong>$20.00/min</strong>. Fans will be billed in real-time from their wallet balances.
+                Min <strong>₹1.00/min</strong>, max <strong>₹20.00/min</strong>. Fans will be billed in real-time from their wallet balances.
               </p>
             </div>
           </div>

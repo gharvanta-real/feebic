@@ -40,6 +40,13 @@ export default function CreatePostPage() {
   // Schedule states
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduleDate, setScheduleDate] = useState("");
+  const [minScheduleDate, setMinScheduleDate] = useState("");
+
+  useEffect(() => {
+    if (isScheduled) {
+      setMinScheduleDate(new Date(Date.now() + 60000).toISOString().slice(0, 16));
+    }
+  }, [isScheduled]);
 
   // Vault picker modal state
   const [isVaultOpen, setIsVaultOpen] = useState(false);
@@ -396,7 +403,7 @@ export default function CreatePostPage() {
                       required
                       value={scheduleDate}
                       onChange={(e) => setScheduleDate(e.target.value)}
-                      min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+                      min={minScheduleDate}
                       className="w-full px-4 py-2 bg-surface border border-border rounded-xl focus:border-primary transition-all text-xs font-bold outline-none text-text-main"
                     />
                   </div>

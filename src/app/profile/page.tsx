@@ -32,6 +32,11 @@ function ProfileContent() {
 
   // Lightbox visual overlay state
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [mountTime, setMountTime] = useState<number>(0);
+
+  useEffect(() => {
+    setMountTime(Date.now());
+  }, []);
 
   type BackendPost = Partial<Post> & {
     creator_username?: string;
@@ -246,7 +251,7 @@ function ProfileContent() {
   };
 
   const getFilteredPosts = () => {
-    const now = Date.now();
+    const now = mountTime || Date.now();
     if (activeTab === "queue") {
       return posts.filter(p => p.publishAt && new Date(p.publishAt).getTime() > now);
     }
