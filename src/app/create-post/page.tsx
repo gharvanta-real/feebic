@@ -1254,9 +1254,8 @@ export default function CreatePostPage() {
                       type="button"
                       onClick={handleBack}
                       disabled={isPublishing}
-                      className="px-5 py-2.5 border border-border hover:border-text-muted rounded-full text-xs font-semibold text-text-main transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      className="px-5 py-2.5 border border-border hover:border-text-muted rounded-full text-xs font-semibold text-text-main transition-all flex items-center justify-center cursor-pointer disabled:opacity-50"
                     >
-                      <span className="material-symbols-outlined text-[16px]">arrow_back</span>
                       <span>Back</span>
                     </button>
                   )}
@@ -1267,24 +1266,26 @@ export default function CreatePostPage() {
                     <button
                       type="button"
                       onClick={handleNext}
-                      className="px-6 py-2.5 bg-primary hover:bg-primary-hover active:scale-95 text-white text-xs font-medium tracking-wider rounded-full transition-all shadow flex items-center gap-1.5 cursor-pointer"
+                      className="px-6 py-2.5 bg-primary hover:bg-primary-hover active:scale-95 text-white text-xs font-medium tracking-wider rounded-full transition-all shadow flex items-center justify-center cursor-pointer"
                     >
                       <span>Next Step</span>
-                      <span className="material-symbols-outlined text-[16px] font-semibold">arrow_forward</span>
                     </button>
                   ) : (
                     <button
                       type="button"
                       onClick={handlePublish}
                       disabled={isPublishing}
-                      className={`bg-primary hover:bg-primary-hover active:scale-95 text-white text-xs font-medium tracking-wider px-7 py-2.5 rounded-full transition-all shadow flex items-center gap-1.5 ${
+                      className={`bg-primary hover:bg-primary-hover active:scale-95 text-white text-xs font-medium tracking-wider px-7 py-2.5 rounded-full transition-all shadow flex items-center justify-center gap-2 ${
                         isPublishing ? "cursor-wait opacity-70" : "cursor-pointer"
                       }`}
                     >
+                      {isPublishing && (
+                        <svg className="animate-spin h-3.5 w-3.5 text-white shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      )}
                       <span>{isPublishing ? "Publishing..." : isScheduled ? "Schedule Release" : "Publish Now"}</span>
-                      <span className="material-symbols-outlined text-[16px] font-semibold">
-                        {isPublishing ? "hourglass_empty" : "send"}
-                      </span>
                     </button>
                   )}
                 </div>
