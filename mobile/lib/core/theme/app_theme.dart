@@ -96,6 +96,14 @@ class AppTheme {
         unselectedItemColor: AppColors.lightTextMuted,
         elevation: 8,
       ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: AppColors.lightBackground,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        clipBehavior: Clip.antiAliasWithSaveLayer,
+        elevation: 4,
+      ),
       dividerTheme: const DividerThemeData(
         color: AppColors.lightBorder,
         thickness: 1,
@@ -205,6 +213,14 @@ class AppTheme {
         selectedItemColor: AppColors.darkPrimary,
         unselectedItemColor: AppColors.darkTextMuted,
         elevation: 8,
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: AppColors.darkBackground,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        clipBehavior: Clip.antiAliasWithSaveLayer,
+        elevation: 4,
       ),
       dividerTheme: const DividerThemeData(
         color: AppColors.darkBorder,

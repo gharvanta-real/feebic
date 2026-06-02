@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:feebic_mobile/features/shared/widgets/verified_badge.dart';
 import 'package:feebic_mobile/features/shared/widgets/user_avatar.dart';
+import 'package:feebic_mobile/features/profile/presentation/screens/creator_profile_details_screen.dart';
 import '../../../../core/cubit/user_mode_cubit.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -17,6 +19,24 @@ class ExploreScreen extends StatefulWidget {
 class _ExploreScreenState extends State<ExploreScreen> {
   String _searchQuery = '';
   String _selectedCategory = 'All';
+  final FocusNode _searchFocusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _searchFocusNode.addListener(_onFocusChange);
+  }
+
+  @override
+  void dispose() {
+    _searchFocusNode.removeListener(_onFocusChange);
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  void _onFocusChange() {
+    setState(() {});
+  }
 
   final List<Map<String, dynamic>> _creators = [
     {
@@ -94,14 +114,22 @@ class _ExploreScreenState extends State<ExploreScreen> {
               child: Row(
                 children: [
                   Expanded(
-                    child: Container(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
                       decoration: BoxDecoration(
                         color: isDark
                             ? AppColors.darkBorder.withOpacity(0.3)
                             : AppColors.lightBorder.withOpacity(0.3),
                         borderRadius: AppRadius.rSM,
+                        border: Border.all(
+                          color: _searchFocusNode.hasFocus
+                              ? (isDark ? AppColors.darkPrimary : AppColors.lightPrimary)
+                              : Colors.transparent,
+                          width: 1.2,
+                        ),
                       ),
                       child: TextField(
+                        focusNode: _searchFocusNode,
                         onChanged: (val) {
                           setState(() {
                             _searchQuery = val;
@@ -122,9 +150,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
                           ),
                           prefixIcon: Icon(
                             Icons.search,
-                            color: isDark
-                                ? AppColors.darkTextMuted
-                                : AppColors.lightTextMuted,
+                            color: _searchFocusNode.hasFocus
+                                ? (isDark ? AppColors.darkPrimary : AppColors.lightPrimary)
+                                : (isDark
+                                    ? AppColors.darkTextMuted
+                                    : AppColors.lightTextMuted),
                           ),
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.symmetric(
@@ -168,65 +198,80 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       itemBuilder: (context, index) {
                         final creator = filteredCreators[index];
 
-                        return Container(
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? AppColors.darkBorder.withOpacity(0.15)
-                                : AppColors.lightBackground,
-                            borderRadius: AppRadius.rMD,
-                            border: Border.all(
+                        return PressableScaleContainer(
+                          onTap: () {
+                            HapticFeedback.lightImpact();
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => CreatorProfileDetailsScreen(
+                                  username: creator['name'] as String,
+                                  avatarUrl: creator['avatar'] as String,
+                                  isVerified: creator['verified'] as bool,
+                                ),
+                              ),
+                            );
+                          },
+                          child: Container(
+                            decoration: BoxDecoration(
                               color: isDark
-                                  ? AppColors.darkBorder
-                                  : AppColors.lightBorder.withOpacity(0.5),
+                                  ? AppColors.darkBorder.withOpacity(0.15)
+                                  : AppColors.lightBackground,
+                              borderRadius: AppRadius.rMD,
+                              border: Border.all(
+                                color: isDark
+                                    ? AppColors.darkBorder
+                                    : AppColors.lightBorder.withOpacity(0.5),
+                              ),
                             ),
-                          ),
-                          padding: AppSpacing.pAllSM,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              UserAvatar(
-                                imageUrl: creator['avatar'] as String,
-                                radius: 36,
-                              ),
-                              AppSpacing.gapSM,
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Flexible(
-                                    child: Text(
-                                      creator['name'] as String,
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 13),
-                                      overflow: TextOverflow.ellipsis,
+                            padding: AppSpacing.pAllSM,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                UserAvatar(
+                                  imageUrl: creator['avatar'] as String,
+                                  radius: 36,
+                                ),
+                                AppSpacing.gapSM,
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        creator['name'] as String,
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
+                                    if (creator['verified'] == true)
+                                      const VerifiedBadge(),
+                                  ],
+                                ),
+                                AppSpacing.gapXXS,
+                                Text(
+                                  '@${creator['handle']}',
+                                  style: TextStyle(
+                                    color: isDark
+                                        ? AppColors.darkTextMuted
+                                        : AppColors.lightTextMuted,
+                                    fontSize: 11,
                                   ),
-                                  if (creator['verified'] == true)
-                                    const VerifiedBadge(),
-                                ],
-                              ),
-                              AppSpacing.gapXXS,
-                              Text(
-                                '@${creator['handle']}',
-                                style: TextStyle(
-                                  color: isDark
-                                      ? AppColors.darkTextMuted
-                                      : AppColors.lightTextMuted,
-                                  fontSize: 11,
                                 ),
-                              ),
-                              AppSpacing.gapSM,
-                              Text(
-                                '${creator['followers']} followers',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
-                                  color: isDark
-                                      ? AppColors.darkPrimary
-                                      : AppColors.lightPrimary,
+                                AppSpacing.gapSM,
+                                Text(
+                                  '${creator['followers']} followers',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                    color: isDark
+                                        ? AppColors.darkPrimary
+                                        : AppColors.lightPrimary,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         );
                       },
@@ -291,33 +336,53 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
           return GestureDetector(
             onTap: () {
+              HapticFeedback.selectionClick();
               setState(() {
                 _selectedCategory = cat;
               });
             },
-            child: Container(
-              margin: const EdgeInsets.only(right: AppSpacing.xs),
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-              decoration: BoxDecoration(
-                color: isSelected
-                    ? (isDark ? AppColors.darkPrimary : AppColors.lightPrimary)
-                    : (isDark
-                        ? AppColors.darkBorder
-                        : AppColors.lightBorder.withOpacity(0.3)),
-                borderRadius: AppRadius.rFull,
-              ),
-              child: Center(
-                child: Text(
-                  cat,
-                  style: TextStyle(
+            child: AnimatedScale(
+              scale: isSelected ? 1.05 : 1.0,
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOutCubic,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                margin: const EdgeInsets.only(right: AppSpacing.xs),
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? (isDark ? AppColors.darkPrimary : AppColors.lightPrimary)
+                      : (isDark
+                          ? AppColors.darkBorder
+                          : AppColors.lightBorder.withOpacity(0.3)),
+                  borderRadius: AppRadius.rFull,
+                  border: Border.all(
                     color: isSelected
-                        ? Colors.white
-                        : (isDark
-                            ? AppColors.darkTextMain
-                            : AppColors.lightTextMain),
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                    fontSize: 12,
+                        ? Colors.transparent
+                        : (isDark ? AppColors.darkBorder : AppColors.lightBorder.withOpacity(0.5)),
+                    width: 0.8,
                   ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isSelected) ...[
+                      const Icon(Icons.check_rounded, color: Colors.white, size: 12),
+                      const SizedBox(width: 4),
+                    ],
+                    Text(
+                      cat,
+                      style: TextStyle(
+                        color: isSelected
+                            ? Colors.white
+                            : (isDark
+                                ? AppColors.darkTextMain
+                                : AppColors.lightTextMain),
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -392,6 +457,59 @@ class _ExploreScreenState extends State<ExploreScreen> {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class PressableScaleContainer extends StatefulWidget {
+  const PressableScaleContainer({
+    super.key,
+    required this.child,
+    required this.onTap,
+  });
+
+  final Widget child;
+  final VoidCallback onTap;
+
+  @override
+  State<PressableScaleContainer> createState() => _PressableScaleContainerState();
+}
+
+class _PressableScaleContainerState extends State<PressableScaleContainer> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 120),
+    );
+    _scale = Tween<double>(begin: 1.0, end: 0.96).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => _controller.forward(),
+      onTapUp: (_) {
+        _controller.reverse();
+        widget.onTap();
+      },
+      onTapCancel: () => _controller.reverse(),
+      child: ScaleTransition(
+        scale: _scale,
+        child: widget.child,
       ),
     );
   }

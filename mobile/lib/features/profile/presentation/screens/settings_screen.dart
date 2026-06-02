@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/cubit/theme_cubit.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/theme/app_radius.dart';
 import 'accounts_centre_screen.dart';
 import '../widgets/settings_tile.dart';
 import 'blocked_users_screen.dart';
@@ -123,11 +124,7 @@ class SettingsScreen extends StatelessWidget {
           ),
           Center(
             child: TextButton(
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text(
-                        'Simulated Logout: returning to guest session...')),
-              ),
+              onPressed: () => _showLogoutConfirmation(context, isDark),
               child: const Text('log out',
                   style: TextStyle(
                       color: Colors.red,
@@ -202,6 +199,68 @@ class SettingsScreen extends StatelessWidget {
       context,
       MaterialPageRoute(
           builder: (_) => AccountsCentreScreen(isCreatorMode: isCreatorMode)),
+    );
+  }
+
+  void _showLogoutConfirmation(BuildContext context, bool isDark) {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 250),
+      pageBuilder: (context, anim1, anim2) => Container(),
+      transitionBuilder: (context, anim1, anim2, child) {
+        final scale = Tween<double>(begin: 0.9, end: 1.0).animate(
+          CurvedAnimation(parent: anim1, curve: Curves.easeOutBack),
+        );
+        final opacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+          CurvedAnimation(parent: anim1, curve: Curves.easeIn),
+        );
+        return ScaleTransition(
+          scale: scale,
+          child: FadeTransition(
+            opacity: opacity,
+            child: AlertDialog(
+              shape: const RoundedRectangleBorder(borderRadius: AppRadius.rMD),
+              title: const Text('Log Out', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              content: const Text(
+                'Are you sure you want to log out of your session on Felbic?',
+                style: TextStyle(fontSize: 13, height: 1.4),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(
+                    'Cancel',
+                    style: TextStyle(
+                      color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Simulated Logout: returning to guest session...'),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  },
+                  child: const Text(
+                    'Log Out',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

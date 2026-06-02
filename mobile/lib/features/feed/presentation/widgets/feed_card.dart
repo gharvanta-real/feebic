@@ -58,6 +58,7 @@ class _FeedCardState extends State<FeedCard> {
   late bool _isBookmarked;
   late bool _isLockedState;
   final List<String> _comments = <String>[];
+  final List<Key> _heartOverlayKeys = <Key>[];
 
   @override
   void initState() {
@@ -92,6 +93,34 @@ class _FeedCardState extends State<FeedCard> {
         ),
       ),
     );
+  }
+
+  void _triggerDoubleTapLike() {
+    if (_isLockedState) {
+      _showUnlockConfirmationDialog();
+      return;
+    }
+    if (!_isLiked) {
+      setState(() {
+        _isLiked = true;
+        _likesCount += 1;
+      });
+      widget.onLikePressed();
+    }
+    
+    HapticFeedback.mediumImpact();
+
+    final key = UniqueKey();
+    setState(() {
+      _heartOverlayKeys.add(key);
+    });
+    Future.delayed(const Duration(milliseconds: 600), () {
+      if (mounted) {
+        setState(() {
+          _heartOverlayKeys.remove(key);
+        });
+      }
+    });
   }
 
   void _showUnlockConfirmationDialog() {
@@ -211,76 +240,186 @@ class _FeedCardState extends State<FeedCard> {
 
   void _showCommentsSheet() {
     final controller = TextEditingController();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primary = isDark ? AppColors.darkPrimary : AppColors.lightPrimary;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
-      builder: (context) => StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
-          padding: EdgeInsets.only(
-            left: AppSpacing.md,
-            right: AppSpacing.md,
-            top: AppSpacing.md,
-            bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.md,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Comments',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              AppSpacing.gapSM,
-              if (_comments.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
-                  child: Text('No comments yet. Start the conversation.'),
-                )
-              else
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 250),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: _comments.length,
-                    itemBuilder: (context, index) => ListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      leading: const CircleAvatar(
-                          radius: 14, child: Icon(Icons.person, size: 14)),
-                      title: const Text('you',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 12)),
-                      subtitle: Text(_comments[index]),
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkBackground : AppColors.lightBackground,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: EdgeInsets.only(
+          left: AppSpacing.md,
+          right: AppSpacing.md,
+          top: AppSpacing.sm,
+          bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.md,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Comments',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                Text(
+                  '$_commentsCount responses',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                  ),
+                ),
+              ],
+            ),
+            AppSpacing.gapSM,
+            const Divider(),
+            if (_comments.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40),
+                child: Center(
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.chat_bubble_outline_rounded,
+                        size: 28,
+                        color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                      ),
+                      AppSpacing.gapSM,
+                      Text(
+                        'No comments yet.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Start the conversation below.',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 250),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _comments.length,
+                  itemBuilder: (context, index) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CircleAvatar(
+                          radius: 12,
+                          backgroundColor: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                          child: Icon(
+                            Icons.person,
+                            size: 12,
+                            color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                          ),
+                        ),
+                        AppSpacing.gapSM,
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Text(
+                                    'you',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Just now',
+                                    style: TextStyle(
+                                      color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                                      fontSize: 9,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _comments[index],
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              Row(
-                children: [
-                  Expanded(
+              ),
+            AppSpacing.gapSM,
+            Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.darkBorder.withOpacity(0.3) : AppColors.lightBorder.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
                     child: TextField(
                       controller: controller,
-                      decoration:
-                          const InputDecoration(hintText: 'Add a comment...'),
+                      style: const TextStyle(fontSize: 13),
+                      decoration: const InputDecoration(
+                        hintText: 'Add a comment...',
+                        border: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        contentPadding: EdgeInsets.symmetric(vertical: 8),
+                      ),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.send_rounded),
-                    onPressed: () {
-                      final text = controller.text.trim();
-                      if (text.isEmpty) return;
-                      setState(() {
-                        _comments.add(text);
-                        _commentsCount += 1;
-                      });
-                      setSheetState(() {});
-                      controller.clear();
-                      widget.onCommentPressed();
-                    },
-                  ),
-                ],
-              ),
-            ],
-          ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: Icon(Icons.send_rounded, color: primary),
+                  onPressed: () {
+                    final text = controller.text.trim();
+                    if (text.isEmpty) return;
+                    HapticFeedback.lightImpact();
+                    setState(() {
+                      _comments.add(text);
+                      _commentsCount += 1;
+                    });
+                    Navigator.pop(context);
+                    _showCommentsSheet();
+                    widget.onCommentPressed();
+                  },
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -392,26 +531,37 @@ class _FeedCardState extends State<FeedCard> {
                 ],
               ),
             ),
-            if (widget.imageUrl != null) _buildMedia(),
+            if (widget.imageUrl != null)
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  GestureDetector(
+                    onDoubleTap: _triggerDoubleTapLike,
+                    child: _buildMedia(),
+                  ),
+                  ..._heartOverlayKeys.map((key) => HeartPopOverlay(key: key)),
+                ],
+              ),
             Padding(
               padding: const EdgeInsets.symmetric(
                   horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
               child: Row(
                 children: [
-                  IconButton(
+                  SpringIconButton(
                     icon: Icon(
                         _isLiked
                             ? Icons.favorite_rounded
                             : Icons.favorite_border_rounded,
+                        color: _isLiked
+                            ? (isDark
+                                ? AppColors.darkAccent
+                                : AppColors.lightAccent)
+                            : (isDark
+                                ? AppColors.darkTextMain
+                                : AppColors.lightTextMain),
                         size: 22),
-                    color: _isLiked
-                        ? (isDark
-                            ? AppColors.darkAccent
-                            : AppColors.lightAccent)
-                        : (isDark
-                            ? AppColors.darkTextMain
-                            : AppColors.lightTextMain),
                     onPressed: () {
+                      HapticFeedback.lightImpact();
                       setState(() {
                         _isLiked = !_isLiked;
                         _likesCount += _isLiked ? 1 : -1;
@@ -423,38 +573,39 @@ class _FeedCardState extends State<FeedCard> {
                       style: theme.textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.bold, fontSize: 13)),
                   AppSpacing.gapSM,
-                  IconButton(
-                    icon:
-                        const Icon(Icons.chat_bubble_outline_rounded, size: 20),
+                  SpringIconButton(
+                    icon: Icon(Icons.chat_bubble_outline_rounded,
+                        color: isDark
+                            ? AppColors.darkTextMain
+                            : AppColors.lightTextMain,
+                        size: 20),
                     onPressed: _showCommentsSheet,
-                    color: isDark
-                        ? AppColors.darkTextMain
-                        : AppColors.lightTextMain,
                   ),
                   Text('$_commentsCount',
                       style: theme.textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.bold, fontSize: 13)),
-                  IconButton(
-                    icon: const Icon(Icons.ios_share_rounded, size: 20),
+                  SpringIconButton(
+                    icon: Icon(Icons.ios_share_rounded,
+                        color: isDark
+                            ? AppColors.darkTextMain
+                            : AppColors.lightTextMain,
+                        size: 20),
                     onPressed: _sharePost,
-                    color: isDark
-                        ? AppColors.darkTextMain
-                        : AppColors.lightTextMain,
                   ),
                   const Spacer(),
-                  IconButton(
+                  SpringIconButton(
                     icon: Icon(
                         _isBookmarked
                             ? Icons.bookmark_rounded
                             : Icons.bookmark_border_rounded,
+                        color: _isBookmarked
+                            ? (isDark
+                                ? AppColors.darkPrimary
+                                : AppColors.lightPrimary)
+                            : (isDark
+                                ? AppColors.darkTextMain
+                                : AppColors.lightTextMain),
                         size: 22),
-                    color: _isBookmarked
-                        ? (isDark
-                            ? AppColors.darkPrimary
-                            : AppColors.lightPrimary)
-                        : (isDark
-                            ? AppColors.darkTextMain
-                            : AppColors.lightTextMain),
                     onPressed: () {
                       final isSaved =
                           DemoAppState.instance.toggleSaved(widget.postId);
@@ -530,6 +681,131 @@ class _FeedCardState extends State<FeedCard> {
               imageUrl: widget.imageUrl!,
               fit: BoxFit.cover,
             ),
+    );
+  }
+}
+
+class SpringIconButton extends StatefulWidget {
+  const SpringIconButton({
+    super.key,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final Widget icon;
+  final VoidCallback onPressed;
+
+  @override
+  State<SpringIconButton> createState() => _SpringIconButtonState();
+}
+
+class _SpringIconButtonState extends State<SpringIconButton> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 100),
+    );
+    _scale = Tween<double>(begin: 1.0, end: 0.85).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => _controller.forward(),
+      onTapUp: (_) {
+        _controller.reverse();
+        widget.onPressed();
+      },
+      onTapCancel: () => _controller.reverse(),
+      child: ScaleTransition(
+        scale: _scale,
+        child: Container(
+          color: Colors.transparent,
+          padding: const EdgeInsets.all(8),
+          child: widget.icon,
+        ),
+      ),
+    );
+  }
+}
+
+class HeartPopOverlay extends StatefulWidget {
+  const HeartPopOverlay({super.key});
+
+  @override
+  State<HeartPopOverlay> createState() => _HeartPopOverlayState();
+}
+
+class _HeartPopOverlayState extends State<HeartPopOverlay> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scale;
+  late Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 550),
+    );
+    _scale = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.25).chain(CurveTween(curve: Curves.easeOutBack)), weight: 40),
+      TweenSequenceItem(tween: Tween(begin: 1.25, end: 1.0), weight: 30),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0).chain(CurveTween(curve: Curves.easeIn)), weight: 30),
+    ]).animate(_controller);
+
+    _opacity = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 25),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 45),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 30),
+    ]).animate(_controller);
+
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Opacity(
+          opacity: _opacity.value,
+          child: ScaleTransition(
+            scale: _scale,
+            child: const Icon(
+              Icons.favorite_rounded,
+              color: Colors.white,
+              size: 72,
+              shadows: [
+                Shadow(
+                  color: Colors.black38,
+                  blurRadius: 8,
+                  offset: Offset(0, 3),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

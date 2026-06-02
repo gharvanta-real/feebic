@@ -28,171 +28,259 @@ class _WalletScreenState extends State<WalletScreen> {
     },
   ];
 
-  void _showAddFundsDialog(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final controller = TextEditingController();
-    showDialog(
+  void _showCustomGeneralDialog({
+    required BuildContext context,
+    required String title,
+    required Widget content,
+    required List<Widget> actions,
+  }) {
+    showGeneralDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: const RoundedRectangleBorder(borderRadius: AppRadius.rMD),
-        title: const Text('Add Funds',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        content: TextField(
-          controller: controller,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(
-            hintText: 'Enter deposit amount (e.g. 1000.00)',
-            prefixText: 'Rs ',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cancel',
-              style: TextStyle(
-                  color: isDark
-                      ? AppColors.darkTextMuted
-                      : AppColors.lightTextMuted),
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 250),
+      pageBuilder: (context, anim1, anim2) => Container(),
+      transitionBuilder: (context, anim1, anim2, child) {
+        final scale = Tween<double>(begin: 0.9, end: 1.0).animate(
+          CurvedAnimation(parent: anim1, curve: Curves.easeOutBack),
+        );
+        final opacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+          CurvedAnimation(parent: anim1, curve: Curves.easeIn),
+        );
+        return ScaleTransition(
+          scale: scale,
+          child: FadeTransition(
+            opacity: opacity,
+            child: AlertDialog(
+              shape: const RoundedRectangleBorder(borderRadius: AppRadius.rMD),
+              title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              content: content,
+              actions: actions,
             ),
           ),
-          TextButton(
-            onPressed: () {
-              final amount = double.tryParse(controller.text.trim());
-              if (amount != null && amount > 0) {
-                setState(() {
-                  DemoAppState.instance.addFunds(amount);
-                });
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                        'Deposited Rs ${amount.toStringAsFixed(2)} successfully! '),
-                    backgroundColor:
-                        isDark ? AppColors.darkSuccess : AppColors.lightSuccess,
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              }
-            },
-            child: Text(
-              'Deposit',
-              style: TextStyle(
-                color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
-                fontWeight: FontWeight.bold,
+        );
+      },
+    );
+  }
+
+  void _showSuccessOverlay(BuildContext context, String message) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: isDark ? Colors.black87 : Colors.white.withOpacity(0.9),
+      transitionDuration: const Duration(milliseconds: 400),
+      pageBuilder: (context, anim1, anim2) => Container(),
+      transitionBuilder: (context, anim1, anim2, child) {
+        final scale = Tween<double>(begin: 0.5, end: 1.0).animate(
+          CurvedAnimation(parent: anim1, curve: Curves.easeOutBack),
+        );
+        final opacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+          CurvedAnimation(parent: anim1, curve: Curves.easeIn),
+        );
+
+        Future.delayed(const Duration(milliseconds: 1800), () {
+          if (context.mounted) {
+            Navigator.of(context, rootNavigator: true).pop();
+          }
+        });
+
+        return FadeTransition(
+          opacity: opacity,
+          child: ScaleTransition(
+            scale: scale,
+            child: Center(
+              child: Card(
+                elevation: 0,
+                color: Colors.transparent,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        color: (isDark ? AppColors.darkSuccess : AppColors.lightSuccess).withOpacity(0.12),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: isDark ? AppColors.darkSuccess : AppColors.lightSuccess,
+                          width: 2,
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.check_rounded,
+                        color: isDark ? AppColors.darkSuccess : AppColors.lightSuccess,
+                        size: 40,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Success!',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                        color: isDark ? AppColors.darkTextMain : AppColors.lightTextMain,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Text(
+                        message,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-        ],
+        );
+      },
+    );
+  }
+
+  void _showAddFundsDialog(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final controller = TextEditingController();
+    _showCustomGeneralDialog(
+      context: context,
+      title: 'Add Funds',
+      content: TextField(
+        controller: controller,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: const InputDecoration(
+          hintText: 'Enter deposit amount (e.g. 1000.00)',
+          prefixText: 'Rs ',
+        ),
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(
+            'Cancel',
+            style: TextStyle(
+                color: isDark
+                    ? AppColors.darkTextMuted
+                    : AppColors.lightTextMuted),
+          ),
+        ),
+        TextButton(
+          onPressed: () {
+            final amount = double.tryParse(controller.text.trim());
+            if (amount != null && amount > 0) {
+              setState(() {
+                DemoAppState.instance.addFunds(amount);
+              });
+              Navigator.pop(context);
+              _showSuccessOverlay(context, 'Deposited Rs ${amount.toStringAsFixed(2)} successfully!');
+            }
+          },
+          child: Text(
+            'Deposit',
+            style: TextStyle(
+              color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
   void _showRequestPayoutDialog(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final controller = TextEditingController();
-    showDialog(
+    _showCustomGeneralDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: const RoundedRectangleBorder(borderRadius: AppRadius.rMD),
-        title: const Text('Request Payout',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        content: TextField(
-          controller: controller,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(
-            hintText: 'Enter amount to withdraw',
-            prefixText: 'Rs ',
+      title: 'Request Payout',
+      content: TextField(
+        controller: controller,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: const InputDecoration(
+          hintText: 'Enter amount to withdraw',
+          prefixText: 'Rs ',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(
+            'Cancel',
+            style: TextStyle(
+                color: isDark
+                    ? AppColors.darkTextMuted
+                    : AppColors.lightTextMuted),
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cancel',
-              style: TextStyle(
-                  color: isDark
-                      ? AppColors.darkTextMuted
-                      : AppColors.lightTextMuted),
+        TextButton(
+          onPressed: () {
+            final amount = double.tryParse(controller.text.trim());
+            if (amount != null &&
+                DemoAppState.instance.requestPayout(amount)) {
+              setState(() {});
+              Navigator.pop(context);
+              _showSuccessOverlay(context, 'Payout request of Rs ${amount.toStringAsFixed(2)} submitted!');
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content:
+                      const Text('Invalid amount or insufficient balance.'),
+                  backgroundColor:
+                      isDark ? AppColors.darkAccent : AppColors.lightAccent,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
+          },
+          child: Text(
+            'Request',
+            style: TextStyle(
+              color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
+              fontWeight: FontWeight.bold,
             ),
           ),
-          TextButton(
-            onPressed: () {
-              final amount = double.tryParse(controller.text.trim());
-              if (amount != null &&
-                  DemoAppState.instance.requestPayout(amount)) {
-                setState(() {});
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                        'Payout request of Rs ${amount.toStringAsFixed(2)} submitted! '),
-                    backgroundColor:
-                        isDark ? AppColors.darkSuccess : AppColors.lightSuccess,
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content:
-                        const Text('Invalid amount or insufficient balance.'),
-                    backgroundColor:
-                        isDark ? AppColors.darkAccent : AppColors.lightAccent,
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              }
-            },
-            child: Text(
-              'Request',
-              style: TextStyle(
-                color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   void _showAddPaymentMethodDialog(BuildContext context) {
     final controller = TextEditingController();
-    showDialog(
+    _showCustomGeneralDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: const RoundedRectangleBorder(borderRadius: AppRadius.rMD),
-        title: const Text('Add Payment Method',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-              hintText: 'Card label, e.g. Mastercard ending in 8080'),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              final label = controller.text.trim();
-              if (label.isEmpty) return;
-              setState(() {
-                _paymentMethods.add({
-                  'title': label,
-                  'subtitle': 'Ready to use',
-                  'icon': Icons.credit_card_rounded
-                });
-              });
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Payment method added.')));
-            },
-            child: const Text('Save'),
-          ),
-        ],
+      title: 'Add Payment Method',
+      content: TextField(
+        controller: controller,
+        decoration: const InputDecoration(
+            hintText: 'Card label, e.g. Mastercard ending in 8080'),
       ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel')),
+        TextButton(
+          onPressed: () {
+            final label = controller.text.trim();
+            if (label.isEmpty) return;
+            setState(() {
+              _paymentMethods.add({
+                'title': label,
+                'subtitle': 'Ready to use',
+                'icon': Icons.credit_card_rounded
+              });
+            });
+            Navigator.pop(context);
+            _showSuccessOverlay(context, 'Payment method added: $label');
+          },
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 

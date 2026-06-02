@@ -93,8 +93,8 @@ class MetricCard extends StatelessWidget {
             ],
           ),
           AppSpacing.gapSM,
-          Text(
-            value,
+          AnimatedCountText(
+            value: value,
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
           ),
           AppSpacing.gapXXS,
@@ -235,7 +235,7 @@ class ActivityRow extends StatelessWidget {
   }
 }
 
-class MiniBarChart extends StatelessWidget {
+class MiniBarChart extends StatefulWidget {
   const MiniBarChart({
     super.key,
     required this.values,
@@ -246,38 +246,146 @@ class MiniBarChart extends StatelessWidget {
   final List<String> labels;
 
   @override
+  State<MiniBarChart> createState() => _MiniBarChartState();
+}
+
+class _MiniBarChartState extends State<MiniBarChart> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _growAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _growAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+    );
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).primaryColor;
-    final maxValue =
-        values.fold<double>(1, (max, value) => value > max ? value : max);
+    final maxValue = widget.values.fold<double>(1, (max, value) => value > max ? value : max);
 
     return SizedBox(
       height: 118,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: List.generate(values.length, (index) {
-          final height = 72 * (values[index] / maxValue);
-          return Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 3),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Container(
-                    height: height.clamp(8, 72),
-                    decoration: BoxDecoration(
-                      color: primary.withOpacity(0.82),
-                      borderRadius: AppRadius.rXS,
-                    ),
+      child: AnimatedBuilder(
+        animation: _growAnimation,
+        builder: (context, child) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: List.generate(widget.values.length, (index) {
+              final height = 72 * (widget.values[index] / maxValue) * _growAnimation.value;
+              return Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 3),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Container(
+                        height: height.clamp(2.0, 72.0),
+                        decoration: BoxDecoration(
+                          color: primary.withOpacity(0.82),
+                          borderRadius: AppRadius.rXS,
+                        ),
+                      ),
+                      AppSpacing.gapXS,
+                      Text(widget.labels[index], style: const TextStyle(fontSize: 9)),
+                    ],
                   ),
-                  AppSpacing.gapXS,
-                  Text(labels[index], style: const TextStyle(fontSize: 9)),
-                ],
-              ),
-            ),
+                ),
+              );
+            }),
           );
-        }),
+        },
       ),
+    );
+  }
+}
+
+class AnimatedCountText extends StatefulWidget {
+  const AnimatedCountText({
+    super.key,
+    required this.value,
+    this.style,
+  });
+
+  final String value;
+  final TextStyle? style;
+
+  @override
+  State<AnimatedCountText> createState() => _AnimatedCountTextState();
+}
+
+class _AnimatedCountTextState extends State<AnimatedCountText> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+  late double _targetValue;
+  late String _prefix;
+  late String _suffix;
+
+  @override
+  void initState() {
+    super.initState();
+    _parseValue();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+    _animation = Tween<double>(begin: 0, end: _targetValue).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
+    );
+    _controller.forward();
+  }
+
+  void _parseValue() {
+    _prefix = '';
+    _suffix = '';
+    String clean = widget.value;
+    if (clean.startsWith('Rs ')) {
+      _prefix = 'Rs ';
+      clean = clean.substring(3);
+    }
+    if (clean.endsWith('K')) {
+      _suffix = 'K';
+      clean = clean.substring(0, clean.length - 1);
+    } else if (clean.endsWith('%')) {
+      _suffix = '%';
+      clean = clean.substring(0, clean.length - 1);
+    }
+
+    _targetValue = double.tryParse(clean.replaceAll(',', '')) ?? 0.0;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        final valStr = _animation.value % 1 == 0
+            ? _animation.value.toInt().toString()
+            : _animation.value.toStringAsFixed(1);
+        return Text(
+          '$_prefix$valStr$_suffix',
+          style: widget.style,
+        );
+      },
     );
   }
 }

@@ -34,7 +34,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   final List<String> _selectedTiers = ['Free Subscribers'];
 
   final _captionController = TextEditingController();
-  final _watermarkController = TextEditingController(text: '@alexandra_arts');
+  late final TextEditingController _watermarkController;
   final List<TextEditingController> _pollControllers = [
     TextEditingController(text: 'More behind the scenes'),
     TextEditingController(text: 'Long-form tutorial'),
@@ -86,6 +86,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   @override
   void initState() {
     super.initState();
+    _watermarkController = TextEditingController(text: '@${DemoAppState.instance.creatorUsername}');
     _captionController.addListener(_refreshPreview);
     _watermarkController.addListener(_refreshPreview);
   }
@@ -157,9 +158,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     DemoAppState.instance.addPost(
       DemoPost(
         postId: 'new_post_${DateTime.now().millisecondsSinceEpoch}',
-        username: 'alexandra_arts',
-        avatarUrl:
-            'https://images.unsplash.com/photo-1524504388940-b1c1722653e1',
+        username: DemoAppState.instance.creatorUsername,
+        avatarUrl: DemoAppState.instance.creatorAvatar,
         isVerified: true,
         caption: _captionController.text.trim().isEmpty
             ? 'New exclusive post is ready for fans.'
