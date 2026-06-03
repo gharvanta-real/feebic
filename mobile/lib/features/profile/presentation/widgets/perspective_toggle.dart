@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../../core/auth/auth_session.dart';
 import '../../../../core/cubit/user_mode_cubit.dart';
+import '../../../../core/di/injection.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 
@@ -19,6 +21,25 @@ class PerspectiveToggle extends StatelessWidget {
               horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
           child: InkWell(
             onTap: () {
+              final isCreatorAccount = getIt<AuthSession>().role == 'creator';
+              if (state == UserMode.fan && !isCreatorAccount) {
+                ScaffoldMessenger.of(context).clearSnackBars();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text(
+                      'Creator dashboard is available only for creator accounts.',
+                      style:
+                          TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    behavior: SnackBarBehavior.floating,
+                    duration: const Duration(seconds: 2),
+                    backgroundColor:
+                        isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
+                  ),
+                );
+                return;
+              }
+
               cubit.toggleMode();
               ScaffoldMessenger.of(context).clearSnackBars();
               ScaffoldMessenger.of(context).showSnackBar(

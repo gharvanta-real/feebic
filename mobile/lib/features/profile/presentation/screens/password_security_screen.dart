@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/auth/auth_session.dart';
+import '../../../../core/network/api_client.dart';
+import '../../../../core/di/injection.dart';
 import '../widgets/active_sessions_list.dart';
 
 class PasswordSecurityScreen extends StatefulWidget {
@@ -20,6 +23,13 @@ class _PasswordSecurityScreenState extends State<PasswordSecurityScreen> {
   bool _is2FAEnabled = false;
 
   @override
+  void initState() {
+    super.initState();
+    final user = getIt<AuthSession>().user ?? {};
+    _is2FAEnabled = user['two_factor'] == true;
+  }
+
+  @override
   void dispose() {
     _currentController.dispose();
     _newController.dispose();
@@ -29,15 +39,66 @@ class _PasswordSecurityScreenState extends State<PasswordSecurityScreen> {
 
   void _changePassword() async {
     if (!_formKey.currentState!.validate()) return;
+    
     setState(() => _isSaving = true);
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (mounted) {
-      setState(() => _isSaving = false);
-      _currentController.clear();
-      _newController.clear();
-      _confirmController.clear();
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('password updated successfully!')));
+    
+    try {
+      final response = await getIt<ApiClient>().post('/users/security/password', data: {
+        'current_password': _currentController.text,
+        'new_password': _newController.text,
+      });
+
+      if (response.statusCode == 200) {
+        if (mounted) {
+          _currentController.clear();
+          _newController.clear();
+          _confirmController.clear();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Password updated successfully!'), behavior: SnackBarBehavior.floating),
+          );
+        }
+      } else {
+        throw Exception('Failed to update password');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  void _toggle2FA(bool val) async {
+    setState(() => _is2FAEnabled = val);
+    
+    try {
+      final response = await getIt<ApiClient>().put('/users/security/settings', data: {
+        'two_factor': val,
+      });
+
+      if (response.statusCode == 200) {
+        await getIt<AuthSession>().refreshProfile();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('2FA is ${val ? "enabled" : "disabled"}.'), behavior: SnackBarBehavior.floating),
+          );
+        }
+      } else {
+        throw Exception('Failed to update 2FA settings');
+      }
+    } catch (e) {
+      // Revert if error
+      setState(() => _is2FAEnabled = !val);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), behavior: SnackBarBehavior.floating),
+        );
+      }
     }
   }
 
@@ -90,7 +151,8 @@ class _PasswordSecurityScreenState extends State<PasswordSecurityScreen> {
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                         backgroundColor: primaryColor,
-                        minimumSize: const Size.fromHeight(40)),
+                        minimumSize: const Size.fromHeight(40),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
                     onPressed: _isSaving ? null : _changePassword,
                     child: _isSaving
                         ? const SizedBox(
@@ -127,11 +189,7 @@ class _PasswordSecurityScreenState extends State<PasswordSecurityScreen> {
                   style: TextStyle(fontSize: 9.5)),
               value: _is2FAEnabled,
               activeColor: primaryColor,
-              onChanged: (val) {
-                setState(() => _is2FAEnabled = val);
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text('2FA is ${val ? "enabled" : "disabled"}.')));
-              },
+              onChanged: _toggle2FA,
             ),
           ),
           AppSpacing.gapLG,
@@ -156,7 +214,7 @@ class _PasswordSecurityScreenState extends State<PasswordSecurityScreen> {
       obscureText: true,
       style: const TextStyle(fontSize: 13),
       decoration: InputDecoration(
-          labelText: label, border: const OutlineInputBorder(), isDense: true),
+          labelText: label, border: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(10))), isDense: true),
       validator: (val) {
         if (val == null || val.length < 6) {
           return 'at least 6 characters required';

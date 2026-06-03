@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { MobileHeader } from "@/components/layout/MobileHeader";
 import { useUser } from "@/context/UserContext";
-import { useClerk } from "@clerk/nextjs";
 import { filterByRole, roleHome, roleLabel, settingsLinks } from "@/lib/roleAccess";
 
 interface SettingsLayoutProps {
@@ -16,10 +15,11 @@ interface SettingsLayoutProps {
 export default function SettingsLayout({ children }: SettingsLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user } = useUser();
-  const { signOut } = useClerk();
+  const { user, logout } = useUser();
 
-  if (!user) return null;
+  if (!user) {
+    return <AppShell>{null}</AppShell>;
+  }
 
   const visibleMenu = filterByRole(settingsLinks, user.role);
   const currentSection = settingsLinks.find((item) => pathname === item.href);
@@ -79,7 +79,7 @@ export default function SettingsLayout({ children }: SettingsLayoutProps) {
           {/* Logout at sidebar bottom */}
           <div className="p-3 border-t border-border mt-auto">
             <button
-              onClick={() => { signOut(); }}
+              onClick={() => { logout(); router.push("/login"); }}
               className="w-full px-3 py-2 flex items-center gap-2.5 rounded-xl border border-border text-xs font-bold text-text-muted hover:border-accent hover:text-accent transition-colors cursor-pointer"
             >
               <span className="material-symbols-outlined text-[19px]">logout</span>

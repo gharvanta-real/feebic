@@ -6,6 +6,7 @@ import (
 
 	"server/internal/auth"
 	"server/internal/chat"
+	"server/internal/live"
 	"server/internal/media"
 	"server/internal/middleware"
 	"server/internal/notifications"
@@ -14,6 +15,7 @@ import (
 	"server/internal/users"
 	"server/internal/vault"
 	"server/internal/wallet"
+	"server/internal/admin"
 )
 
 func SetupRoutes(app *fiber.App) {
@@ -21,9 +23,13 @@ func SetupRoutes(app *fiber.App) {
 
 	// 1. Authentication Group (Public)
 	authGroup := api.Group("/auth")
-	authGroup.Post("/register", auth.Register)
+	authGroup.Post("/register/start", auth.StartRegistration)
+	authGroup.Post("/register/verify", auth.VerifyRegistration)
+	authGroup.Post("/register", auth.RegisterDisabled)
 	authGroup.Post("/login", auth.Login)
-	authGroup.Post("/clerk-sync", auth.ClerkSync)
+	authGroup.Post("/password/reset/start", auth.StartPasswordReset)
+	authGroup.Post("/password/reset/verify", auth.VerifyPasswordReset)
+	authGroup.Get("/username/:username", auth.CheckUsername)
 
 	// 2. Users & Profiles Group
 	usersGroup := api.Group("/users")
@@ -48,8 +54,9 @@ func SetupRoutes(app *fiber.App) {
 
 	// 3. Posts & Feed Group
 	postsGroup := api.Group("/posts")
-	postsGroup.Get("/", posts.GetFeed)                               // Public feed (optionally authorized inside handler)
+	postsGroup.Get("/", posts.GetFeed) // Public feed (optionally authorized inside handler)
 	postsGroup.Get("/bookmarks", middleware.RequireAuth(), posts.GetBookmarks)
+	postsGroup.Get("/mine", middleware.RequireAuth(), posts.GetMyPosts)
 	postsGroup.Post("/", middleware.RequireAuth(), posts.CreatePost) // Protected post creation
 	postsGroup.Get("/:id/comments", posts.GetComments)
 	postsGroup.Post("/:id/comments", middleware.RequireAuth(), posts.AddComment)
@@ -60,6 +67,7 @@ func SetupRoutes(app *fiber.App) {
 	postsGroup.Post("/:id/fundraiser/contribute", middleware.RequireAuth(), posts.ContributeFundraiser)
 	postsGroup.Post("/:id/repost", middleware.RequireAuth(), posts.RepostPost)
 	postsGroup.Post("/:id/report", middleware.RequireAuth(), posts.ReportPost)
+	postsGroup.Put("/:id", middleware.RequireAuth(), posts.UpdatePost)
 	postsGroup.Delete("/:id", middleware.RequireAuth(), posts.DeletePost)
 
 	// 4. Wallet & Transaction Group (Protected)
@@ -88,17 +96,18 @@ func SetupRoutes(app *fiber.App) {
 	vaultGroup.Use(middleware.RequireAuth())
 	vaultGroup.Get("/", vault.GetVault)
 	vaultGroup.Post("/", vault.AddToVault)
+	vaultGroup.Delete("/:id", vault.DeleteFromVault)
 
 	// 7. Ephemeral Stories Group (Protected)
 	storiesGroup := api.Group("/stories")
-	storiesGroup.Use(middleware.RequireAuth())
 	storiesGroup.Get("/", stories.GetActiveStories)
+	storiesGroup.Use(middleware.RequireAuth())
 	storiesGroup.Post("/", stories.CreateStory)
 	storiesGroup.Post("/:id/view", stories.MarkStoryViewed)
 
 	// 8. Direct Messages / Chat Group (Protected)
 	chatGroup := api.Group("/chat")
-	
+
 	// WebSocket connection route (handles upgrade authentication in custom middleware)
 	chatGroup.Get("/ws", chat.WebSocketUpgradeMiddleware, websocket.New(chat.WebSocketHandler))
 
@@ -107,6 +116,15 @@ func SetupRoutes(app *fiber.App) {
 	chatGroup.Get("/messages/:username", chat.GetMessages)
 	chatGroup.Post("/messages", chat.SendMessage)
 	chatGroup.Post("/broadcast", chat.BroadcastMessage)
+
+	// Live Streaming Group
+	liveGroup := api.Group("/live")
+	liveGroup.Get("/active", live.GetActiveStream)
+	liveGroup.Use(middleware.RequireAuth())
+	liveGroup.Post("/start", live.StartStream)
+	liveGroup.Post("/:id/end", live.EndStream)
+	liveGroup.Post("/:id/comments", live.AddComment)
+	liveGroup.Post("/:id/reactions", live.AddReaction)
 
 	// Custom Lists Group (Protected)
 	listsGroup := api.Group("/lists")
@@ -121,4 +139,22 @@ func SetupRoutes(app *fiber.App) {
 	mediaGroup := api.Group("/media")
 	mediaGroup.Use(middleware.RequireAuth())
 	mediaGroup.Get("/cloudinary-signature", media.CloudinarySignature)
+
+	// 10. Admin Control Room Endpoints
+	adminGroup := api.Group("/admin")
+	adminGroup.Use(middleware.RequireAuth())
+	adminGroup.Get("/overview/metrics", admin.GetOverviewMetrics)
+	adminGroup.Get("/users", admin.GetUsers)
+	adminGroup.Put("/users/:username/status", admin.UpdateUserStatus)
+	adminGroup.Put("/users/:username/kyc", admin.UpdateKYC)
+	adminGroup.Post("/users/:username/email", admin.SendSystemEmail)
+	adminGroup.Delete("/users/:username", admin.DeleteUser)
+	adminGroup.Get("/posts", admin.GetFlaggedContent)
+	adminGroup.Put("/posts/:id/decision", admin.ModeratePost)
+	adminGroup.Get("/appeals", admin.GetAppeals)
+	adminGroup.Put("/appeals/:id/resolve", admin.UpdateAppeal)
+	adminGroup.Post("/security/mass-ban", admin.MassBanBots)
+	adminGroup.Get("/security/alerts", admin.GetSecurityAlerts)
+	adminGroup.Get("/settings", admin.GetSettings)
+	adminGroup.Put("/settings", admin.UpdateSettings)
 }

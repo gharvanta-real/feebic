@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../../../core/theme/app_colors.dart';
 import '../../../../../core/theme/app_radius.dart';
@@ -22,24 +23,21 @@ class MediaPickerSection extends StatelessWidget {
     super.key,
     required this.isVideo,
     required this.selectedMediaUrl,
+    required this.selectedLocalPath,
     required this.selectedVideoUrl,
-    required this.imagePresets,
-    required this.videoPresets,
     required this.onVideoModeChanged,
-    required this.onPresetSelected,
+    required this.onPickFromDevice,
   });
 
   final bool isVideo;
   final String selectedMediaUrl;
+  final String? selectedLocalPath;
   final String? selectedVideoUrl;
-  final List<MediaPreset> imagePresets;
-  final List<MediaPreset> videoPresets;
   final ValueChanged<bool> onVideoModeChanged;
-  final ValueChanged<MediaPreset> onPresetSelected;
+  final VoidCallback onPickFromDevice;
 
   @override
   Widget build(BuildContext context) {
-    final presets = isVideo ? videoPresets : imagePresets;
     return Column(
       children: [
         CreatePostSection(
@@ -70,32 +68,57 @@ class MediaPickerSection extends StatelessWidget {
         ),
         CreatePostSection(
           title: 'Content Asset',
-          subtitle: 'Pick the media that fans will see in the feed.',
+          subtitle: 'Upload real media from this device.',
           icon: Icons.collections_rounded,
-          child: GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            addAutomaticKeepAlives: false,
-            addRepaintBoundaries: true,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              mainAxisSpacing: AppSpacing.sm,
-              crossAxisSpacing: AppSpacing.sm,
-              childAspectRatio: 1.2,
-            ),
-            itemCount: presets.length,
-            itemBuilder: (context, index) {
-              final preset = presets[index];
-              final selected = isVideo
-                  ? selectedVideoUrl == preset.videoUrl
-                  : selectedMediaUrl == preset.imageUrl;
-              return _PresetTile(
-                preset: preset,
-                selected: selected,
-                isVideo: isVideo,
-                onTap: () => onPresetSelected(preset),
-              );
-            },
+          child: Column(
+            children: [
+              AspectRatio(
+                aspectRatio: 1.35,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: AppRadius.rSM,
+                    border: Border.all(color: Theme.of(context).dividerColor),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: AppRadius.rSM,
+                    child: selectedLocalPath != null && !isVideo
+                        ? Image.file(File(selectedLocalPath!),
+                            fit: BoxFit.cover)
+                        : selectedMediaUrl.isNotEmpty
+                            ? OptimizedNetworkImage(
+                                imageUrl: selectedMediaUrl,
+                                fit: BoxFit.cover,
+                              )
+                            : Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      isVideo
+                                          ? Icons.video_library_outlined
+                                          : Icons.add_photo_alternate_outlined,
+                                      size: 34,
+                                    ),
+                                    AppSpacing.gapSM,
+                                    const Text(
+                                      'No media selected',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                  ),
+                ),
+              ),
+              AppSpacing.gapMD,
+              FilledButton.icon(
+                onPressed: onPickFromDevice,
+                icon: const Icon(Icons.upload_rounded),
+                label: Text(isVideo ? 'Choose video' : 'Choose photo'),
+              ),
+            ],
           ),
         ),
       ],
@@ -144,88 +167,6 @@ class _ModeButton extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PresetTile extends StatelessWidget {
-  const _PresetTile({
-    required this.preset,
-    required this.selected,
-    required this.isVideo,
-    required this.onTap,
-  });
-
-  final MediaPreset preset;
-  final bool selected;
-  final bool isVideo;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primary = isDark ? AppColors.darkPrimary : AppColors.lightPrimary;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: AppRadius.rSM,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: AppRadius.rSM,
-          border: Border.all(
-            color: selected ? primary : Colors.transparent,
-            width: 1.5,
-          ),
-        ),
-        child: ClipRRect(
-          borderRadius: AppRadius.rSM,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              OptimizedNetworkImage(
-                imageUrl: preset.imageUrl,
-                fit: BoxFit.cover,
-                cacheExtentMultiplier: 0.8,
-              ),
-              Positioned(
-                left: AppSpacing.xs,
-                right: AppSpacing.xs,
-                bottom: AppSpacing.xs,
-                child: Text(
-                  preset.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    shadows: [Shadow(color: Colors.black, blurRadius: 8)],
-                  ),
-                ),
-              ),
-              if (isVideo)
-                const Center(
-                  child: Icon(
-                    Icons.play_circle_fill_rounded,
-                    color: Colors.white,
-                    size: 32,
-                  ),
-                ),
-              if (selected)
-                Positioned(
-                  top: AppSpacing.xs,
-                  right: AppSpacing.xs,
-                  child: CircleAvatar(
-                    radius: 11,
-                    backgroundColor: primary,
-                    child: const Icon(Icons.check_rounded,
-                        color: Colors.white, size: 16),
-                  ),
-                ),
-            ],
-          ),
         ),
       ),
     );

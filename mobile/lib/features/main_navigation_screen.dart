@@ -7,7 +7,6 @@ import 'explore/presentation/screens/explore_screen.dart';
 import 'wallet/presentation/screens/wallet_screen.dart';
 import 'chat/presentation/screens/chat_list_screen.dart';
 import 'profile/presentation/screens/profile_screen.dart';
-import 'shared/widgets/user_avatar.dart';
 
 class MainNavigationScreen extends StatefulWidget {
   const MainNavigationScreen({super.key});
@@ -101,11 +100,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                         width: 1.5,
                       ),
                     ),
-                    child: UserAvatar(
+                    child: const CircleAvatar(
                       radius: 10,
-                      imageUrl: state == UserMode.creator
-                          ? 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1'
-                          : 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde',
+                      child: Icon(Icons.person_rounded, size: 13),
                     ),
                   );
                 },

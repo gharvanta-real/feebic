@@ -50,6 +50,8 @@ export interface Post {
     current: number;
   } | null;
   publishAt?: string | null;
+  status?: "published" | "hidden" | "archived" | string;
+  visibility?: "public" | "subscribers" | "private" | string;
   repostedFromId?: string | null;
   repostedBy?: string | null;
 }
@@ -126,7 +128,7 @@ export interface Story {
 
 export interface Notification {
   id: string;
-  type: 'subscribe' | 'tip' | 'like' | 'comment';
+  type: 'subscribe' | 'tip' | 'like' | 'comment' | 'unlock' | 'fundraiser' | 'repost';
   senderName: string;
   senderAvatar: string;
   text: string;
@@ -1181,7 +1183,7 @@ class MockDatabase {
     return JSON.parse(this.getItem("ch_notifications", "[]"));
   }
 
-  addNotification(type: 'subscribe' | 'tip' | 'like' | 'comment', senderName: string, senderAvatar: string, text: string, amount: number | null = null): Notification {
+  addNotification(type: 'subscribe' | 'tip' | 'like' | 'comment' | 'unlock' | 'fundraiser' | 'repost', senderName: string, senderAvatar: string, text: string, amount: number | null = null): Notification {
     const notifications = this.getNotifications();
     const newNotif: Notification = {
       id: "notif_" + Date.now(),

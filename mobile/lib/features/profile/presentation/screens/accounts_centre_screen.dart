@@ -5,6 +5,9 @@ import '../../../../core/theme/app_spacing.dart';
 import 'personal_details_screen.dart';
 import 'password_security_screen.dart';
 import 'wallet_payments_screen.dart';
+import 'email_settings_screen.dart';
+import 'kyc_verification_screen.dart';
+import 'delete_account_screen.dart';
 
 class AccountsCentreScreen extends StatelessWidget {
   final bool isCreatorMode;
@@ -38,13 +41,28 @@ class AccountsCentreScreen extends StatelessWidget {
                     builder: (context) => const PasswordSecurityScreen()));
           }),
           _buildTile(context, Icons.person_pin_rounded, 'Personal details',
-              'Email addresses, backup numbers, account ownership', isDark, () {
+              'Edit username, display name, location, bio, avatar, cover banner', isDark, () {
             Navigator.push(
                 context,
                 MaterialPageRoute(
                     builder: (context) =>
                         PersonalDetailsScreen(isCreatorMode: isCreatorMode)));
           }),
+          _buildTile(context, Icons.mail_outline_rounded, 'Email settings',
+              'Change or update your verified email address', isDark, () {
+            Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (context) => const EmailSettingsScreen()));
+          }),
+          if (isCreatorMode)
+            _buildTile(context, Icons.verified_user_rounded, 'Identity verification',
+                'Verify identity for payouts and verified badges', isDark, () {
+              Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const KycVerificationScreen()));
+            }),
           _buildTile(
               context,
               Icons.credit_card_rounded,
@@ -62,6 +80,13 @@ class AccountsCentreScreen extends StatelessWidget {
                 context,
                 MaterialPageRoute(
                     builder: (context) => const PasswordSecurityScreen()));
+          }),
+          _buildTile(context, Icons.delete_forever_rounded, 'Delete account',
+              'Permanently erase your account and profile data', isDark, () {
+            Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (context) => const DeleteAccountScreen()));
           }),
         ],
       ),

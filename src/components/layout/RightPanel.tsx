@@ -7,6 +7,30 @@ import type { Creator } from "@/lib/mockDb";
 import { VerifiedBadge } from "@/components/ui/VerifiedBadge";
 import { apiClient } from "@/lib/apiClient";
 
+interface BackendCreator {
+  id?: string;
+  name?: string;
+  display_name?: string;
+  displayName?: string;
+  username: string;
+  avatar?: string;
+  cover?: string;
+  cover_photo?: string;
+  coverPhoto?: string;
+  bio?: string;
+  location?: string;
+  website?: string;
+  likes?: number | string;
+  likes_count?: number;
+  sub_price?: number;
+  subPrice?: number;
+  tag?: string;
+  fans_count?: number;
+  posts_count?: number;
+  photos_count?: number;
+  videos_count?: number;
+}
+
 export const RightPanel: React.FC = () => {
   const { user, subscriptions, subscribeToCreator, showToast } = useUser();
   const [creators, setCreators] = useState<Creator[]>([]);
@@ -15,7 +39,7 @@ export const RightPanel: React.FC = () => {
   useEffect(() => {
     const fetchCreators = async () => {
       try {
-        const data = await apiClient.get<any[]>("/users/creators");
+        const data = await apiClient.get<BackendCreator[]>("/users/creators");
         setCreators(data.map((creator) => ({
           name: creator.display_name || creator.displayName || creator.name || "Felbic Creator",
           username: creator.username,
@@ -42,10 +66,6 @@ export const RightPanel: React.FC = () => {
   }, [subscriptions]);
 
   const handleSubscribeClick = (username: string, subPrice: number) => {
-    if (user?.role !== "fan") {
-      showToast("Switch to Visitor mode to subscribe to creators.");
-      return;
-    }
     subscribeToCreator(username, subPrice);
   };
 
@@ -98,19 +118,17 @@ export const RightPanel: React.FC = () => {
                   </div>
                 </Link>
 
-                {user?.role === "fan" && (
-                  <button
-                    onClick={() => handleSubscribeClick(creator.username, creator.subPrice)}
-                    disabled={isSubbed}
-                    className={`text-[10.5px] px-3.5 py-1.5 rounded-full shrink-0 transition-all cursor-pointer ${
-                      isSubbed
-                        ? "bg-[hsl(var(--text-muted-hsl)/0.08)] text-text-muted border border-border/60 cursor-default select-none font-semibold"
-                        : "border border-primary text-primary hover:bg-primary hover:text-white active:scale-95 font-bold"
-                    }`}
-                  >
-                    {isSubbed ? "Subscribed" : "Subscribe"}
-                  </button>
-                )}
+                <button
+                  onClick={() => handleSubscribeClick(creator.username, creator.subPrice)}
+                  disabled={isSubbed}
+                  className={`text-[10.5px] px-3.5 py-1.5 rounded-full shrink-0 transition-all cursor-pointer ${
+                    isSubbed
+                      ? "bg-[hsl(var(--text-muted-hsl)/0.08)] text-text-muted border border-border/60 cursor-default select-none font-semibold"
+                      : "border border-primary text-primary hover:bg-primary hover:text-white active:scale-95 font-bold"
+                  }`}
+                >
+                  {isSubbed ? "Subscribed" : "Subscribe"}
+                </button>
               </div>
             );
           })}
@@ -154,47 +172,53 @@ export const RightPanel: React.FC = () => {
             })
             .map((item, index) => {
               const creatorInfo = item.creator;
+              const isSubbed = subscriptions.includes(item.username);
               
               return (
-                <div key={item.username} className="flex items-center gap-3 rounded-2xl border border-border/45 bg-background/60 px-3 py-2.5">
-                  <div className="w-5 shrink-0 text-center text-[11px] font-black text-text-muted">
-                    {String(index + 1).padStart(2, "0")}
-                  </div>
-
-                  <Link href={`/profile?u=${item.username}`} className="group flex min-w-0 flex-1 items-center gap-2.5">
-                    <div className="relative shrink-0">
-                      <img
-                        src={creatorInfo.avatar}
-                        alt={creatorInfo.name}
-                        className="h-9.5 w-9.5 rounded-full object-cover border border-border group-hover:opacity-95 transition-opacity"
-                      />
-                      <div className="absolute bottom-0 right-0 h-2 w-2 bg-emerald-500 border border-surface rounded-full" />
+                <div key={item.username} className="flex items-center justify-between gap-3 py-2.5 border-b border-border/40 last:border-b-0">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <div className="w-5 shrink-0 text-center text-[11px] font-black text-text-muted">
+                      {String(index + 1).padStart(2, "0")}
                     </div>
-
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-0.5">
-                        <p className="truncate text-[11.5px] font-black leading-none text-text-main group-hover:text-primary">
-                          {creatorInfo.name}
-                        </p>
-                        {creatorInfo.verified && (
-                          <VerifiedBadge size="xs" />
-                        )}
+ 
+                    <Link href={`/profile?u=${item.username}`} className="group flex min-w-0 flex-1 items-center gap-2.5">
+                      <div className="relative shrink-0">
+                        <img
+                          src={creatorInfo.avatar}
+                          alt={creatorInfo.name}
+                          className="h-9.5 w-9.5 rounded-full object-cover border border-border group-hover:opacity-95 transition-opacity"
+                        />
+                        <div className="absolute bottom-0 right-0 h-2 w-2 bg-emerald-500 border border-surface rounded-full" />
                       </div>
-                      <p className="mt-1 truncate text-[9.5px] font-semibold text-text-muted">
-                        @{creatorInfo.username}
-                      </p>
-                    </div>
-                  </Link>
-
-                  {user?.role === "fan" && (
-                    <button 
-                      onClick={() => handleSubscribeClick(item.username, item.price)}
-                      className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 border border-primary/25 px-3 py-1.5 text-[10.5px] font-bold text-primary transition-all hover:bg-primary hover:text-white active:scale-95 cursor-pointer"
-                    >
-                      <span className="material-symbols-outlined text-[12px] leading-none" style={{ fontVariationSettings: "'FILL' 1" }}>lock</span>
-                      <span>₹{item.price.toFixed(2)}</span>
-                    </button>
-                  )}
+ 
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-0.5">
+                          <p className="truncate text-[11.5px] font-black leading-none text-text-main group-hover:text-primary">
+                            {creatorInfo.name}
+                          </p>
+                          {creatorInfo.verified && (
+                            <VerifiedBadge size="xs" />
+                          )}
+                        </div>
+                        <p className="mt-1 truncate text-[9.5px] font-semibold text-text-muted">
+                          @{creatorInfo.username}
+                        </p>
+                      </div>
+                    </Link>
+                  </div>
+ 
+                  <button 
+                    onClick={() => handleSubscribeClick(item.username, item.price)}
+                    disabled={isSubbed}
+                    className={`flex shrink-0 items-center gap-1 rounded-full px-3.5 py-1.5 text-[10.5px] transition-all active:scale-95 cursor-pointer ${
+                      isSubbed
+                        ? "bg-[hsl(var(--text-muted-hsl)/0.08)] text-text-muted border border-border/60 cursor-default select-none font-semibold"
+                        : "border border-primary text-primary hover:bg-primary hover:text-white font-bold"
+                    }`}
+                  >
+                    {!isSubbed && <span className="material-symbols-outlined text-[9.5px] leading-none">lock</span>}
+                    <span>{isSubbed ? "Subscribed" : `₹${item.price.toFixed(0)}`}</span>
+                  </button>
                 </div>
               );
             })}

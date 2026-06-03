@@ -49,39 +49,7 @@ class DemoAppState extends ChangeNotifier {
 
   static final DemoAppState instance = DemoAppState._();
 
-  final List<DemoPost> posts = <DemoPost>[
-    DemoPost(
-      postId: 'feed_alex_art_1',
-      username: 'alexandra_art',
-      avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330',
-      isVerified: true,
-      caption:
-          'Working on a new digital canvas piece today. Check out my short video trailer preview.',
-      imageUrl: 'https://images.unsplash.com/photo-1513364776144-60967b0f800f',
-      videoUrl:
-          'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExM3Npa3JzMDl2dHpxMXptcmQ1b3hxdTkybnF4MDFpOHFhc2I2anZ0dSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/l41Yc2nICfMnsgfa8/giphy.gif',
-      isVideo: true,
-      likes: 1243,
-      comments: 48,
-      isLocked: false,
-    ),
-    DemoPost(
-      postId: 'feed_premium_clicks_1',
-      username: 'premium_clicks',
-      avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d',
-      isVerified: false,
-      caption:
-          'Behind the scenes travel vlog video. Unlock to see the full length premium video file!',
-      imageUrl: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1',
-      videoUrl:
-          'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExMGx0MmJ3aDVndThqN3I0ZzRsMGZsdHZ2cjhkZHAzYm42Y25odWN1NCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/1AgGfR18U6da3o9J1B/giphy.gif',
-      isLocked: true,
-      isVideo: true,
-      unlockPrice: 'Rs 799',
-      likes: 420,
-      comments: 12,
-    ),
-  ];
+  final List<DemoPost> posts = <DemoPost>[];
 
   void addPost(DemoPost post) {
     posts.insert(0, post);
@@ -109,29 +77,7 @@ class DemoAppState extends ChangeNotifier {
   double creatorSubscriptionPrice = 399.0;
 
   // Active Sessions State (For Security Subpage)
-  final List<Map<String, String>> activeSessions = [
-    {
-      'id': 'session_1',
-      'device': 'iPhone 15 Pro Max',
-      'location': 'New Delhi, IN',
-      'ip': '192.168.1.45',
-      'status': 'Active now',
-    },
-    {
-      'id': 'session_2',
-      'device': 'MacBook Pro 16"',
-      'location': 'Mumbai, IN',
-      'ip': '103.241.12.89',
-      'status': 'Last active 2 hrs ago',
-    },
-    {
-      'id': 'session_3',
-      'device': 'Safari on iPad Pro',
-      'location': 'Noida, IN',
-      'ip': '172.56.21.110',
-      'status': 'Last active 3 days ago',
-    },
-  ];
+  final List<Map<String, String>> activeSessions = [];
 
   // Bank & Payouts details (For stripe payouts setup)
   String bankAccountName = '';
@@ -190,11 +136,11 @@ class DemoAppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  double fanBalance = 4500.00;
-  double creatorEarnings = 142450.00;
+  double fanBalance = 0.00;
+  double creatorEarnings = 0.00;
   int savedCount = 0;
-  int notificationsCount = 3;
-  int unreadChats = 1;
+  int notificationsCount = 0;
+  int unreadChats = 0;
 
   final Set<String> savedPostIds = <String>{};
   final Set<String> unlockedPostIds = <String>{};
@@ -202,53 +148,11 @@ class DemoAppState extends ChangeNotifier {
   final Set<String> subscribedCreators = <String>{};
   final Set<String> creatorAlerts = <String>{};
   final Set<String> blockedCreators = <String>{};
-  final List<Map<String, dynamic>> purchasedMedia = <Map<String, dynamic>>[
-    {
-      'id': 'pur_1',
-      'image': 'https://images.unsplash.com/photo-1513364776144-60967b0f800f',
-      'creator': 'alexandra_art',
-      'caption': 'Working on a new digital canvas piece today!',
-      'date': 'May 28, 2026',
-    },
-    {
-      'id': 'pur_2',
-      'image': 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38',
-      'creator': 'chef_gabriel',
-      'caption': 'Wood-fired sourdough pizza from scratch!',
-      'date': 'May 12, 2026',
-    },
-  ];
+  final List<Map<String, dynamic>> purchasedMedia = <Map<String, dynamic>>[];
 
-  final List<DemoTransaction> fanTransactions = <DemoTransaction>[
-    DemoTransaction(
-        description: 'Subscribed to @lucia_fit',
-        amount: -799.00,
-        date: 'June 1, 2026',
-        isAdd: false),
-    DemoTransaction(
-        description: 'Unlocked Post from @alexandra_art',
-        amount: -399.00,
-        date: 'May 28, 2026',
-        isAdd: false),
-    DemoTransaction(
-        description: 'Wallet Deposit',
-        amount: 5000.00,
-        date: 'May 25, 2026',
-        isAdd: true),
-  ];
+  final List<DemoTransaction> fanTransactions = <DemoTransaction>[];
 
-  final List<DemoTransaction> creatorPayouts = <DemoTransaction>[
-    DemoTransaction(
-        description: 'Payout Completed (Bank Transfer)',
-        amount: -120000.00,
-        date: 'May 15, 2026',
-        isAdd: false),
-    DemoTransaction(
-        description: 'Payout Completed (Bank Transfer)',
-        amount: -94000.00,
-        date: 'April 15, 2026',
-        isAdd: false),
-  ];
+  final List<DemoTransaction> creatorPayouts = <DemoTransaction>[];
 
   void markNotificationsSeen() {
     notificationsCount = 0;
@@ -282,6 +186,9 @@ class DemoAppState extends ChangeNotifier {
     notifyListeners();
     return !isSubscribed;
   }
+
+  /// Public method to notify listeners after externally mutating subscribedCreators
+  void notifySubscribersChanged() => notifyListeners();
 
   bool toggleAlerts(String creatorUsername) {
     final hasAlert = creatorAlerts.contains(creatorUsername);

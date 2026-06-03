@@ -58,6 +58,8 @@ class SavedPostDetailSheet extends StatelessWidget {
               isVideo: post.isVideo,
               likes: post.likes,
               comments: post.comments,
+              isLiked: false,
+              isBookmarked: true,
               onLikePressed: () {
                 post.likes = post.likes + 1;
               },

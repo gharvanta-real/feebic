@@ -100,3 +100,39 @@ func AddToVault(c *fiber.Ctx) error {
 
 	return c.Status(http.StatusCreated).JSON(fiber.Map{"message": "Asset added to vault successfully"})
 }
+
+// 3. Delete asset from vault (Creators only)
+func DeleteFromVault(c *fiber.Ctx) error {
+	userID := c.Locals("userID").(string)
+	userRole := c.Locals("userRole").(string)
+	itemID := c.Params("id")
+
+	if userRole != "creator" {
+		return c.Status(http.StatusForbidden).JSON(fiber.Map{"error": "Only creators can delete from the media vault"})
+	}
+
+	if itemID == "" {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Missing vault item ID"})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := database.Pool.Exec(ctx,
+		`DELETE FROM vault_items 
+		 WHERE id = $1 AND creator_id = $2`,
+		itemID, userID,
+	)
+
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to delete vault record"})
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Vault item not found or unauthorized"})
+	}
+
+	return c.JSON(fiber.Map{"message": "Asset deleted from vault successfully"})
+}
+

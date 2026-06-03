@@ -4,12 +4,10 @@ import React, { useState } from "react";
 import { useUser } from "@/context/UserContext";
 import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/apiClient";
-import { useClerk } from "@clerk/nextjs";
 
 export default function DeleteAccountSettingsPage() {
   const router = useRouter();
-  const { showToast } = useUser();
-  const { signOut } = useClerk();
+  const { showToast, logout } = useUser();
   const [password, setPassword] = useState("");
   const [confirmed, setConfirmed] = useState(false);
 
@@ -25,7 +23,8 @@ export default function DeleteAccountSettingsPage() {
 
       showToast("Account deleted successfully. We are sorry to see you go!");
       setTimeout(() => {
-        signOut();
+        logout();
+        router.push("/login");
       }, 1000);
     } catch (err: any) {
       showToast(err.message || "Your confirmation password is incorrect");

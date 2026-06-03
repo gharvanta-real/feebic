@@ -7,7 +7,6 @@ import { Toast } from "../ui/Toast";
 import { useSidebar } from "@/context/SidebarContext";
 import { useUser } from "@/context/UserContext";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@clerk/nextjs";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -15,29 +14,25 @@ interface AppShellProps {
 
 export const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const { isCollapsed } = useSidebar();
-  const { authStatus, authError, refreshUserProfile, retryAuthSync, user } = useUser();
+  const { authStatus, authError, retryAuthSync, user, logout } = useUser();
   const router = useRouter();
-  const { isLoaded, isSignedIn } = useAuth();
 
   useEffect(() => {
-    if (!isLoaded) return;
-
-    const onboardingDone = (typeof window !== "undefined" ? localStorage.getItem("ch_onboarding_done") : null) === "true";
-    const publicPaths = ["/onboarding", "/login", "/sign-up"];
+    const publicPaths = ["/login", "/sign-up", "/admin/login"];
     const currentPath = typeof window !== "undefined" ? window.location.pathname : "";
+    const hasToken = typeof window !== "undefined" && !!localStorage.getItem("ch_token");
     
-    if (!isSignedIn && !publicPaths.includes(currentPath)) {
-      router.replace("/login");
+    if (authStatus === "ready" && !hasToken && !publicPaths.includes(currentPath)) {
+      if (currentPath.startsWith("/admin")) {
+        router.replace("/admin/login");
+      } else {
+        router.replace("/login");
+      }
       return;
     }
+  }, [authStatus, router, user]);
 
-    if (isSignedIn && authStatus === "ready" && !onboardingDone && !publicPaths.includes(currentPath)) {
-      localStorage.setItem("ch_onboarding_done", "true");
-      refreshUserProfile();
-    }
-  }, [authStatus, isLoaded, isSignedIn, refreshUserProfile, router]);
-
-  if (isLoaded && isSignedIn && authStatus === "ready" && authError && !user) {
+  if (authStatus === "ready" && authError && !user) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-background px-6 text-text-main">
         <div className="flex w-full max-w-[420px] flex-col items-center gap-4 rounded-3xl border border-red-500/20 bg-surface p-8 text-center shadow-sm">
@@ -46,18 +41,26 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
             <h1 className="text-xl font-black text-text-main">Backend connection failed</h1>
             <p className="text-sm font-medium text-text-muted">{authError}</p>
           </div>
-          <button
-            onClick={retryAuthSync}
-            className="rounded-full bg-primary px-6 py-2.5 text-sm font-black text-white"
-          >
-            Retry
-          </button>
+          <div className="flex w-full flex-col gap-2">
+            <button
+              onClick={retryAuthSync}
+              className="w-full rounded-full bg-primary py-2.5 text-sm font-black text-white hover:opacity-90 transition-opacity"
+            >
+              Retry
+            </button>
+            <button
+              onClick={logout}
+              className="w-full rounded-full border border-border bg-transparent py-2.5 text-sm font-black text-text-muted hover:text-text-main transition-colors"
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  if (!isLoaded || authStatus === "checking" || authStatus === "syncing" || (isSignedIn && !user)) {
+  if (authStatus === "checking" || authStatus === "syncing") {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-background text-text-main">
         <div className="flex flex-col items-center gap-3 text-center">
@@ -82,7 +85,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
           isCollapsed ? "collapsed" : ""
         } pb-[70px] md:pb-0`}
       >
-        <div className="flex-1 animate-fade-in">{children}</div>
+        <div className="flex-1">{children}</div>
       </main>
 
       {authError && (

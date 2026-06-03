@@ -4,14 +4,14 @@ import '../../../../core/theme/app_spacing.dart';
 import 'optimized_network_image.dart';
 
 class UserAvatar extends StatelessWidget {
-  final String imageUrl;
+  final String? imageUrl;
   final double radius;
   final bool hasStory;
   final bool isOnline;
 
   const UserAvatar({
     super.key,
-    required this.imageUrl,
+    this.imageUrl,
     this.radius = 24.0,
     this.hasStory = false,
     this.isOnline = false,
@@ -21,18 +21,31 @@ class UserAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final safeImageUrl = imageUrl?.trim() ?? '';
 
     Widget avatar = SizedBox(
       width: radius * 2,
       height: radius * 2,
-      child: OptimizedNetworkImage(
-        imageUrl: imageUrl,
-        width: radius * 2,
-        height: radius * 2,
-        borderRadius: BorderRadius.circular(radius),
-        cacheExtentMultiplier: 1.25,
-        placeholderIcon: Icons.person_rounded,
-      ),
+      child: safeImageUrl.isEmpty
+          ? CircleAvatar(
+              radius: radius,
+              backgroundColor:
+                  isDark ? AppColors.darkBorder : AppColors.lightBorder,
+              child: Icon(
+                Icons.person_rounded,
+                color:
+                    isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+                size: radius,
+              ),
+            )
+          : OptimizedNetworkImage(
+              imageUrl: safeImageUrl,
+              width: radius * 2,
+              height: radius * 2,
+              borderRadius: BorderRadius.circular(radius),
+              cacheExtentMultiplier: 1.25,
+              placeholderIcon: Icons.person_rounded,
+            ),
     );
 
     // Apply glowing story borders if hasStory is true

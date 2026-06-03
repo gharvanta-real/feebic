@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 
 	"server/internal/config"
@@ -38,13 +39,17 @@ func main() {
 
 	// 4. Global Middleware Configuration
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "http://localhost:3000,http://127.0.0.1:3000",
+		AllowOrigins: "*",
 		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
 		AllowMethods: "GET, POST, PUT, DELETE, OPTIONS",
 	}))
 	app.Use(logger.New())
 
 	// 5. Connect HTTP Endpoints Router
+	app.Use("/api/auth", limiter.New(limiter.Config{
+		Max:        30,
+		Expiration: 10 * time.Minute,
+	}))
 	routes.SetupRoutes(app)
 
 	// Health check route (fallback check)
@@ -92,4 +97,3 @@ func cleanExpiredStories() {
 		log.Printf("🧹 Background cleaner: Deleted %d expired stories", rowsAffected)
 	}
 }
-

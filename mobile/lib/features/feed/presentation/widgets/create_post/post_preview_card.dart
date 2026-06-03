@@ -1,10 +1,10 @@
 import 'dart:ui';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../../../core/theme/app_colors.dart';
 import '../../../../../core/theme/app_radius.dart';
 import '../../../../../core/theme/app_spacing.dart';
 import '../../../../shared/widgets/optimized_network_image.dart';
-import '../../../../shared/widgets/user_avatar.dart';
 import '../../../../shared/widgets/video_player_card.dart';
 
 class PostPreviewCard extends StatelessWidget {
@@ -12,6 +12,7 @@ class PostPreviewCard extends StatelessWidget {
     super.key,
     required this.caption,
     required this.mediaUrl,
+    this.localMediaPath,
     required this.videoUrl,
     required this.isVideo,
     required this.locked,
@@ -25,6 +26,7 @@ class PostPreviewCard extends StatelessWidget {
 
   final String caption;
   final String mediaUrl;
+  final String? localMediaPath;
   final String? videoUrl;
   final bool isVideo;
   final bool locked;
@@ -52,14 +54,10 @@ class PostPreviewCard extends StatelessWidget {
             padding: EdgeInsets.all(AppSpacing.sm),
             child: Row(
               children: [
-                UserAvatar(
-                  radius: 14,
-                  imageUrl:
-                      'https://images.unsplash.com/photo-1524504388940-b1c1722653e1',
-                ),
+                CircleAvatar(radius: 14, child: Icon(Icons.person, size: 15)),
                 AppSpacing.gapXS,
                 Text(
-                  'alexandra_arts',
+                  'your_profile',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                 ),
                 AppSpacing.gapXXS,
@@ -74,6 +72,7 @@ class PostPreviewCard extends StatelessWidget {
             child: locked
                 ? _LockedPreview(
                     imageUrl: mediaUrl,
+                    localMediaPath: localMediaPath,
                     blur: blur,
                     price: price,
                     watermarkEnabled: watermarkEnabled,
@@ -87,8 +86,10 @@ class PostPreviewCard extends StatelessWidget {
                         isLocked: false,
                         onUnlockPressed: () {},
                       )
-                    : OptimizedNetworkImage(
-                        imageUrl: mediaUrl, fit: BoxFit.cover),
+                    : localMediaPath != null
+                        ? Image.file(File(localMediaPath!), fit: BoxFit.cover)
+                        : OptimizedNetworkImage(
+                            imageUrl: mediaUrl, fit: BoxFit.cover),
           ),
           if (pollEnabled && pollOptions.isNotEmpty)
             _PollPreview(options: pollOptions),
@@ -110,7 +111,7 @@ class PostPreviewCard extends StatelessWidget {
                 ),
                 children: [
                   const TextSpan(
-                    text: 'alexandra_arts ',
+                    text: 'your_profile ',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   TextSpan(
@@ -131,6 +132,7 @@ class PostPreviewCard extends StatelessWidget {
 class _LockedPreview extends StatelessWidget {
   const _LockedPreview({
     required this.imageUrl,
+    this.localMediaPath,
     required this.blur,
     required this.price,
     required this.watermarkEnabled,
@@ -138,6 +140,7 @@ class _LockedPreview extends StatelessWidget {
   });
 
   final String imageUrl;
+  final String? localMediaPath;
   final double blur;
   final double price;
   final bool watermarkEnabled;
@@ -150,11 +153,13 @@ class _LockedPreview extends StatelessWidget {
       children: [
         ImageFiltered(
           imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-          child: OptimizedNetworkImage(
-            imageUrl: imageUrl,
-            fit: BoxFit.cover,
-            cacheExtentMultiplier: 0.8,
-          ),
+          child: localMediaPath != null
+              ? Image.file(File(localMediaPath!), fit: BoxFit.cover)
+              : OptimizedNetworkImage(
+                  imageUrl: imageUrl,
+                  fit: BoxFit.cover,
+                  cacheExtentMultiplier: 0.8,
+                ),
         ),
         ColoredBox(color: Colors.black.withOpacity(0.44)),
         if (watermarkEnabled)
@@ -173,7 +178,7 @@ class _LockedPreview extends StatelessWidget {
                 ),
                 child: Text(
                   watermarkText.trim().isEmpty
-                      ? '@alexandra_arts'
+                      ? '@your_profile'
                       : watermarkText,
                   style: const TextStyle(
                     color: Colors.white70,

@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -15,6 +16,8 @@ type Config struct {
 	CloudinaryAPIKey       string
 	CloudinaryAPISecret    string
 	CloudinaryUploadFolder string
+	ResendAPIKey           string
+	ResendFromEmail        string
 }
 
 func Load() *Config {
@@ -30,17 +33,25 @@ func Load() *Config {
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8081"
 	}
 
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
 		jwtSecret = "felbic-super-secret-jwt-token-key-change-in-production-12345"
 	}
+	if strings.EqualFold(os.Getenv("APP_ENV"), "production") && strings.Contains(jwtSecret, "change-in-production") {
+		log.Fatal("JWT_SECRET must be set to a strong production secret")
+	}
 
 	cloudinaryFolder := os.Getenv("CLOUDINARY_UPLOAD_FOLDER")
 	if cloudinaryFolder == "" {
 		cloudinaryFolder = "felbic/dev"
+	}
+
+	resendFrom := os.Getenv("RESEND_FROM_EMAIL")
+	if resendFrom == "" {
+		resendFrom = "Felbic <onboarding@resend.dev>"
 	}
 
 	return &Config{
@@ -51,5 +62,7 @@ func Load() *Config {
 		CloudinaryAPIKey:       os.Getenv("CLOUDINARY_API_KEY"),
 		CloudinaryAPISecret:    os.Getenv("CLOUDINARY_API_SECRET"),
 		CloudinaryUploadFolder: cloudinaryFolder,
+		ResendAPIKey:           os.Getenv("RESEND_API_KEY"),
+		ResendFromEmail:        resendFrom,
 	}
 }

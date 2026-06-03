@@ -15,14 +15,17 @@ import { PostCard } from "@/components/features/PostCard";
 function ProfileContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, subscriptions, subscribeToCreator, favoriteCreators, toggleFavorite, blockedUsers, toggleBlock, showToast } = useUser();
+  const { user, subscriptions, subscribeToCreator, favoriteCreators, toggleFavorite, blockedUsers, toggleBlock, showToast, walletBalance } = useUser();
 
   const queryUser = searchParams.get("u") || "";
   
   const [profileData, setProfileData] = useState<Creator | null>(null);
   const [isSelf, setIsSelf] = useState(false);
   const [posts, setPosts] = useState<Post[]>([]);
-  const [activeTab, setActiveTab] = useState<"posts" | "photos" | "videos" | "likes" | "queue">("posts");
+  const [activeTab, setActiveTab] = useState<"posts" | "photos" | "videos" | "likes" | "queue" | "saved" | "subscriptions">("posts");
+
+  const [savedPosts, setSavedPosts] = useState<Post[]>([]);
+  const [mySubscriptions, setMySubscriptions] = useState<any[]>([]);
 
   // Payment modal state
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
@@ -126,6 +129,7 @@ function ProfileContent() {
     if (targetUsername === ownUsername) {
       // Viewing own profile
       setIsSelf(true);
+      const isCreator = user.role === "creator";
       setProfileData({
         name: user.displayName,
         username: user.username,
@@ -136,14 +140,40 @@ function ProfileContent() {
         website: user.website || "lanarhoades.fans",
         likes: String(targetPosts.reduce((sum, p) => sum + (p.likes || 0), 0)),
         subPrice: 0,
-        verified: user.role === "creator",
-        tag: user.role === "creator" ? "Creator" : "Fan",
+        verified: isCreator,
+        tag: isCreator ? "Creator" : "Fan",
         fansCount: "0",
         postsCount: String(targetPosts.length),
         photosCount: String(targetPosts.filter((p) => p.mediaType === "image").length),
         videosCount: String(targetPosts.filter((p) => p.mediaType === "video").length),
         joinedDate: "Sep 2020"
       });
+
+      if (!isCreator) {
+        // Fetch bookmarks for Fan
+        try {
+          const bms = await apiClient.get<BackendPost[]>("/posts/bookmarks");
+          setSavedPosts(bms.map((post, idx) => normalizePost(post, idx)));
+        } catch (err) {
+          console.error("Failed to load bookmarks", err);
+        }
+
+        // Fetch subscriptions for Fan
+        try {
+          const subs = await apiClient.get<any[]>("/users/subscriptions");
+          setMySubscriptions(subs.map(s => ({
+            username: s.username,
+            name: s.name || s.displayName,
+            avatar: s.avatar,
+            price: s.price || s.subPrice || 0,
+            status: s.status,
+            expiryDate: s.expiryDate || (s.expires_at ? new Date(s.expires_at).toLocaleDateString() : ""),
+            autoRenew: Boolean(s.autoRenew),
+          })));
+        } catch (err) {
+          console.error("Failed to load subscriptions", err);
+        }
+      }
     } else {
       // Viewing someone else's profile
       setIsSelf(false);
@@ -162,6 +192,12 @@ function ProfileContent() {
       fetchProfile();
     }, 0);
   }, [queryUser, user]);
+
+  useEffect(() => {
+    if (profileData && profileData.tag === "Fan" && activeTab === "posts") {
+      setActiveTab("saved" as any);
+    }
+  }, [profileData]);
 
   if (!profileData) {
     return (
@@ -270,6 +306,250 @@ function ProfileContent() {
   };
 
   const filteredPosts = getFilteredPosts();
+
+  const renderTabButtons = () => {
+    if (profileData.tag === "Fan") {
+      return (
+        <>
+          <button
+            onClick={() => setActiveTab("saved" as any)}
+            className={`flex-1 py-3 flex flex-col items-center justify-center transition-colors cursor-pointer border-b-2 leading-none gap-1.5 ${
+              activeTab === "saved" ? "border-primary text-primary" : "border-transparent text-text-muted"
+            }`}
+          >
+            <span className="material-symbols-outlined text-[19px] font-medium" style={activeTab === "saved" ? { fontVariationSettings: "'FILL' 1" } : undefined}>bookmark</span>
+            <span className="text-[9px] font-black tracking-wider uppercase">SAVED</span>
+          </button>
+          <button
+            onClick={() => setActiveTab("subscriptions" as any)}
+            className={`flex-1 py-3 flex flex-col items-center justify-center transition-colors cursor-pointer border-b-2 leading-none gap-1.5 ${
+              activeTab === "subscriptions" ? "border-primary text-primary" : "border-transparent text-text-muted"
+            }`}
+          >
+            <span className="material-symbols-outlined text-[19px] font-medium" style={activeTab === "subscriptions" ? { fontVariationSettings: "'FILL' 1" } : undefined}>card_membership</span>
+            <span className="text-[9px] font-black tracking-wider uppercase">SUBSCRIPTIONS</span>
+          </button>
+        </>
+      );
+    }
+
+    return (
+      <>
+        <button
+          onClick={() => setActiveTab("posts")}
+          className={`flex-1 py-3 flex flex-col items-center justify-center transition-colors cursor-pointer border-b-2 leading-none gap-1.5 ${
+            activeTab === "posts" ? "border-primary text-primary" : "border-transparent text-text-muted"
+          }`}
+        >
+          <span className="material-symbols-outlined text-[19px] font-medium" style={activeTab === "posts" ? { fontVariationSettings: "'FILL' 1" } : undefined}>grid_view</span>
+          <span className="text-[9px] font-black tracking-wider uppercase">POSTS</span>
+        </button>
+        <button
+          onClick={() => setActiveTab("photos")}
+          className={`flex-1 py-3 flex flex-col items-center justify-center transition-colors cursor-pointer border-b-2 leading-none gap-1.5 ${
+            activeTab === "photos" ? "border-primary text-primary" : "border-transparent text-text-muted"
+          }`}
+        >
+          <span className="material-symbols-outlined text-[19px] font-medium" style={activeTab === "photos" ? { fontVariationSettings: "'FILL' 1" } : undefined}>image</span>
+          <span className="text-[9px] font-black tracking-wider uppercase">PHOTOS</span>
+        </button>
+        <button
+          onClick={() => setActiveTab("videos")}
+          className={`flex-1 py-3 flex flex-col items-center justify-center transition-colors cursor-pointer border-b-2 leading-none gap-1.5 ${
+            activeTab === "videos" ? "border-primary text-primary" : "border-transparent text-text-muted"
+          }`}
+        >
+          <span className="material-symbols-outlined text-[19px] font-medium" style={activeTab === "videos" ? { fontVariationSettings: "'FILL' 1" } : undefined}>play_circle</span>
+          <span className="text-[9px] font-black tracking-wider uppercase">VIDEOS</span>
+        </button>
+        <button
+          onClick={() => setActiveTab("likes")}
+          className={`flex-1 py-3 flex flex-col items-center justify-center transition-colors cursor-pointer border-b-2 leading-none gap-1.5 ${
+            activeTab === "likes" ? "border-primary text-primary" : "border-transparent text-text-muted"
+          }`}
+        >
+          <span className="material-symbols-outlined text-[19px] font-medium" style={activeTab === "likes" ? { fontVariationSettings: "'FILL' 1" } : undefined}>favorite</span>
+          <span className="text-[9px] font-black tracking-wider uppercase">LIKES</span>
+        </button>
+        {isSelf && (
+          <button
+            onClick={() => setActiveTab("queue")}
+            className={`flex-1 py-3 flex flex-col items-center justify-center transition-colors cursor-pointer border-b-2 leading-none gap-1.5 ${
+              activeTab === "queue" ? "border-primary text-primary" : "border-transparent text-text-muted"
+            }`}
+          >
+            <span className="material-symbols-outlined text-[19px] font-medium" style={activeTab === "queue" ? { fontVariationSettings: "'FILL' 1" } : undefined}>schedule</span>
+            <span className="text-[9px] font-black tracking-wider uppercase">QUEUE</span>
+          </button>
+        )}
+      </>
+    );
+  };
+
+  const renderTabContent = () => {
+    if (profileData.tag === "Fan") {
+      if (activeTab === "saved") {
+        if (savedPosts.length === 0) {
+          return (
+            <div className="flex flex-col items-center justify-center py-20 text-center space-y-2.5">
+              <span className="material-symbols-outlined text-[44px] text-text-muted">bookmarks</span>
+              <p className="text-xs font-extrabold text-text-main uppercase tracking-wider">No saved posts</p>
+              <p className="text-[11px] text-text-muted max-w-[240px]">Posts you bookmark will appear here.</p>
+            </div>
+          );
+        }
+        return (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+            {savedPosts.map((post) => {
+              const locked = isPostLocked(post);
+              return (
+                <div
+                  key={post.id}
+                  onClick={() => handlePostClick(post)}
+                  className="relative aspect-[3/4] rounded-2xl overflow-hidden cursor-pointer group shadow-sm bg-surface-container border border-border/40 transition-transform duration-200 hover:scale-[1.015]"
+                >
+                  {locked ? (
+                    <>
+                      <img
+                        src={post.mediaUrl}
+                        alt="Locked preview"
+                        className="h-full w-full object-cover filter blur-[9px] scale-[1.06] opacity-[0.76]"
+                      />
+                      <div className="absolute inset-0 bg-black/25 flex flex-col items-center justify-center text-white">
+                        <span className="material-symbols-outlined text-[18px] text-white/95 leading-none mb-1.5" style={{ fontVariationSettings: "'FILL' 1" }}>
+                          lock
+                        </span>
+                        <span className="text-[10px] font-black text-white/90 bg-black/40 px-2 py-0.75 rounded-full tracking-wider shadow-sm">
+                          ₹{post.price}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <img
+                      src={post.mediaUrl}
+                      alt="Saved post"
+                      className="h-full w-full object-cover"
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      } else {
+        if (mySubscriptions.length === 0) {
+          return (
+            <div className="flex flex-col items-center justify-center py-20 text-center space-y-2.5">
+              <span className="material-symbols-outlined text-[44px] text-text-muted">card_membership</span>
+              <p className="text-xs font-extrabold text-text-main uppercase tracking-wider">No subscriptions</p>
+              <p className="text-[11px] text-text-muted max-w-[240px]">You are not subscribed to any creators yet.</p>
+            </div>
+          );
+        }
+        return (
+          <div className="space-y-3 max-w-xl mx-auto">
+            {mySubscriptions.map((sub: any) => (
+              <Link
+                key={sub.username}
+                href={`/profile?u=${sub.username}`}
+                className="bg-surface border border-border rounded-2xl p-4 flex justify-between items-center gap-4 hover:border-primary/30 transition-all shadow-sm"
+              >
+                <div className="flex items-center gap-3">
+                  <img
+                    src={sub.avatar || "/assets/39bc5c3eed51d62c1022c60686bb459a.png"}
+                    alt={sub.name}
+                    className="h-10 w-10 rounded-full object-cover border border-border"
+                  />
+                  <div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs font-black text-text-main leading-none">{sub.name || sub.displayName}</span>
+                      <VerifiedBadge size="sm" />
+                    </div>
+                    <span className="text-[10px] text-text-muted mt-1 block">@{sub.username}</span>
+                  </div>
+                </div>
+                <span className="text-[10px] bg-primary/10 text-primary font-black px-3.5 py-1 rounded-full uppercase tracking-wider text-center">
+                  {sub.status || "active"}
+                </span>
+              </Link>
+            ))}
+          </div>
+        );
+      }
+    }
+
+    if (activeTab === "queue") {
+      if (filteredPosts.length === 0) {
+        return (
+          <div className="flex flex-col items-center justify-center py-20 text-center space-y-2.5">
+            <span className="material-symbols-outlined text-[44px] text-text-muted animate-pulse">schedule</span>
+            <p className="text-xs font-extrabold text-text-main uppercase tracking-wider">Empty queue</p>
+            <p className="text-[11px] text-text-muted max-w-[240px]">You have no scheduled updates in your queue.</p>
+          </div>
+        );
+      }
+      return (
+        <div className="space-y-5">
+          {filteredPosts.map((post) => (
+            <PostCard
+              key={post.id}
+              post={post}
+              onPostUpdate={fetchProfile}
+            />
+          ))}
+        </div>
+      );
+    }
+
+    if (filteredPosts.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 text-center space-y-2.5">
+          <span className="material-symbols-outlined text-[44px] text-text-muted">feed</span>
+          <p className="text-xs font-extrabold text-text-main uppercase tracking-wider">No updates listed</p>
+          <p className="text-[11px] text-text-muted max-w-[240px]">This tab has no active updates published.</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+        {filteredPosts.map((post) => {
+          const locked = isPostLocked(post);
+          return (
+            <div
+              key={post.id}
+              onClick={() => handlePostClick(post)}
+              className="relative aspect-[3/4] rounded-2xl overflow-hidden cursor-pointer group shadow-sm bg-surface-container border border-border/40 transition-transform duration-200 hover:scale-[1.015]"
+            >
+              {locked ? (
+                <>
+                  <img
+                    src={post.mediaUrl}
+                    alt="Locked content preview"
+                    className="h-full w-full object-cover filter blur-[9px] scale-[1.06] opacity-[0.76]"
+                  />
+                  <div className="absolute inset-0 bg-black/25 flex flex-col items-center justify-center text-white">
+                    <span className="material-symbols-outlined text-[18px] text-white/95 leading-none mb-1.5" style={{ fontVariationSettings: "'FILL' 1" }}>
+                      lock
+                    </span>
+                    <span className="text-[10px] font-black text-white/90 bg-black/40 px-2 py-0.75 rounded-full tracking-wider shadow-sm">
+                      ₹{post.price}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <img
+                  src={post.mediaUrl}
+                  alt="Feed content item"
+                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <AppShell>
@@ -447,114 +727,137 @@ function ProfileContent() {
           </div>
 
           {/* Stats Bar */}
-          <div className="px-6 py-3.5 border-t border-border flex justify-between items-center text-center select-none">
-            <div className="flex-1">
-              <p className="text-[14.5px] font-black text-text-main leading-none">{profileData.postsCount || "1.2K"}</p>
-              <p className="text-[9px] font-bold text-primary mt-1 tracking-wider">POSTS</p>
+          {profileData.tag === "Fan" ? (
+            <div className="px-6 py-3.5 border-t border-border flex justify-between items-center text-center select-none">
+              <div className="flex-1">
+                <p className="text-[14.5px] font-black text-text-main leading-none">{mySubscriptions.length}</p>
+                <p className="text-[9px] font-bold text-primary mt-1 tracking-wider">SUBSCRIBED</p>
+              </div>
+              <div className="h-5 w-[1px] bg-border" />
+              <div className="flex-1">
+                <p className="text-[14.5px] font-black text-text-main leading-none">{savedPosts.length}</p>
+                <p className="text-[9px] font-bold text-text-muted mt-1 tracking-wider">SAVED</p>
+              </div>
+              <div className="h-5 w-[1px] bg-border" />
+              <div className="flex-1">
+                <p className="text-[14.5px] font-black text-text-main leading-none">₹{walletBalance.toFixed(2)}</p>
+                <p className="text-[9px] font-bold text-text-muted mt-1 tracking-wider">BALANCE</p>
+              </div>
             </div>
-            <div className="h-5 w-[1px] bg-border" />
-            <div className="flex-1">
-              <p className="text-[14.5px] font-black text-text-main leading-none">{profileData.photosCount || "228"}</p>
-              <p className="text-[9px] font-bold text-text-muted mt-1 tracking-wider">PHOTOS</p>
+          ) : (
+            <div className="px-6 py-3.5 border-t border-border flex justify-between items-center text-center select-none">
+              <div className="flex-1">
+                <p className="text-[14.5px] font-black text-text-main leading-none">{profileData.postsCount || "1.2K"}</p>
+                <p className="text-[9px] font-bold text-primary mt-1 tracking-wider">POSTS</p>
+              </div>
+              <div className="h-5 w-[1px] bg-border" />
+              <div className="flex-1">
+                <p className="text-[14.5px] font-black text-text-main leading-none">{profileData.photosCount || "228"}</p>
+                <p className="text-[9px] font-bold text-text-muted mt-1 tracking-wider">PHOTOS</p>
+              </div>
+              <div className="h-5 w-[1px] bg-border" />
+              <div className="flex-1">
+                <p className="text-[14.5px] font-black text-text-main leading-none">{profileData.videosCount || "356"}</p>
+                <p className="text-[9px] font-bold text-text-muted mt-1 tracking-wider">VIDEOS</p>
+              </div>
+              <div className="h-5 w-[1px] bg-border" />
+              <div className="flex-1">
+                <p className="text-[14.5px] font-black text-text-main leading-none">{profileData.likes || "7.8K"}</p>
+                <p className="text-[9px] font-bold text-text-muted mt-1 tracking-wider">LIKES</p>
+              </div>
+              <div className="h-5 w-[1px] bg-border" />
+              <div className="flex-1">
+                <p className="text-[14.5px] font-black text-text-main leading-none">{profileData.fansCount || "1.1K"}</p>
+                <p className="text-[9px] font-bold text-text-muted mt-1 tracking-wider">FANS</p>
+              </div>
             </div>
-            <div className="h-5 w-[1px] bg-border" />
-            <div className="flex-1">
-              <p className="text-[14.5px] font-black text-text-main leading-none">{profileData.videosCount || "356"}</p>
-              <p className="text-[9px] font-bold text-text-muted mt-1 tracking-wider">VIDEOS</p>
-            </div>
-            <div className="h-5 w-[1px] bg-border" />
-            <div className="flex-1">
-              <p className="text-[14.5px] font-black text-text-main leading-none">{profileData.likes || "7.8K"}</p>
-              <p className="text-[9px] font-bold text-text-muted mt-1 tracking-wider">LIKES</p>
-            </div>
-            <div className="h-5 w-[1px] bg-border" />
-            <div className="flex-1">
-              <p className="text-[14.5px] font-black text-text-main leading-none">{profileData.fansCount || "1.1K"}</p>
-              <p className="text-[9px] font-bold text-text-muted mt-1 tracking-wider">FANS</p>
-            </div>
-          </div>
+          )}
 
           {/* Subscription Banner */}
-          <div className="px-4 pb-4">
-            <div className="bg-[#e8f5ff] dark:bg-primary/8 rounded-2xl p-4 flex items-center justify-between shadow-sm">
-              <div>
-                <p className="text-[13px] font-black text-text-main font-sans">Subscription</p>
-                {profileData.discountActive ? (
-                  <p className="text-[11.5px] font-bold mt-0.75 text-success">
-                    <span className="line-through text-text-muted mr-1.5">₹{profileData.subPrice}</span>
-                    <span>₹{(profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)).toFixed(2)} per month</span>
-                    <span className="bg-success text-white text-[8px] font-black uppercase px-2 py-0.5 rounded-full ml-2 select-none tracking-wider">
-                      {profileData.discountPercent}% OFF
-                    </span>
-                  </p>
-                ) : (
-                  <p className="text-[11.5px] text-text-muted font-bold mt-0.75">₹{profileData.subPrice} per month</p>
-                )}
+          {!isSelf && profileData.tag !== "Fan" && (
+            <div className="px-4 pb-4">
+              <div className="bg-[#e8f5ff] dark:bg-primary/8 rounded-2xl p-4 flex items-center justify-between shadow-sm">
+                <div>
+                  <p className="text-[13px] font-black text-text-main font-sans">Subscription</p>
+                  {profileData.discountActive ? (
+                    <p className="text-[11.5px] font-bold mt-0.75 text-success">
+                      <span className="line-through text-text-muted mr-1.5">₹{profileData.subPrice}</span>
+                      <span>₹{(profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)).toFixed(2)} per month</span>
+                      <span className="bg-success text-white text-[8px] font-black uppercase px-2 py-0.5 rounded-full ml-2 select-none tracking-wider">
+                        {profileData.discountPercent}% OFF
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="text-[11.5px] text-text-muted font-bold mt-0.75">₹{profileData.subPrice} per month</p>
+                  )}
+                </div>
+                <button
+                  onClick={handleSubscribe}
+                  className={`text-xs px-6 py-2.5 rounded-full transition-all cursor-pointer shadow-sm ${
+                    isSubbed
+                      ? "bg-black/5 dark:bg-white/5 text-text-muted border border-border/80 font-semibold cursor-default select-none"
+                      : "bg-primary hover:bg-primary-hover text-white font-black"
+                  }`}
+                >
+                  {isSubbed ? "Subscribed" : "Subscribe"}
+                </button>
               </div>
-              <button
-                onClick={handleSubscribe}
-                className={`text-xs px-6 py-2.5 rounded-full transition-all cursor-pointer shadow-sm ${
-                  isSubbed
-                    ? "bg-black/5 dark:bg-white/5 text-text-muted border border-border/80 font-semibold cursor-default select-none"
-                    : "bg-primary hover:bg-primary-hover text-white font-black"
-                }`}
-              >
-                {isSubbed ? "Subscribed" : "Subscribe"}
-              </button>
             </div>
-          </div>
+          )}
 
           {/* Subscription Bundles Card Panel */}
-          <div className="px-4 pb-5 space-y-2.5 select-none">
-            <h3 className="text-[10px] font-black text-text-muted tracking-widest uppercase pl-1">
-              SUBSCRIPTION BUNDLES
-            </h3>
-            <div className="border border-border rounded-2xl divide-y divide-border overflow-hidden bg-surface shadow-sm">
-              {/* 3 Months */}
-              <div className="p-3.5 flex items-center justify-between hover:bg-black/[0.01] dark:hover:bg-white/[0.01] transition-colors">
-                <div>
-                  <p className="text-[12.5px] font-extrabold text-text-main">3 MONTHS (10% off)</p>
-                  <p className="text-[11px] text-text-muted font-semibold mt-0.75">
-                    ₹{((profileData.discountActive 
-                      ? profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)
-                      : profileData.subPrice) * 3 * 0.9).toFixed(2)} total
-                  </p>
+          {!isSelf && profileData.tag !== "Fan" && (
+            <div className="px-4 pb-5 space-y-2.5 select-none">
+              <h3 className="text-[10px] font-black text-text-muted tracking-widest uppercase pl-1">
+                SUBSCRIPTION BUNDLES
+              </h3>
+              <div className="border border-border rounded-2xl divide-y divide-border overflow-hidden bg-surface shadow-sm">
+                {/* 3 Months */}
+                <div className="p-3.5 flex items-center justify-between hover:bg-black/[0.01] dark:hover:bg-white/[0.01] transition-colors">
+                  <div>
+                    <p className="text-[12.5px] font-extrabold text-text-main">3 MONTHS (10% off)</p>
+                    <p className="text-[11px] text-text-muted font-semibold mt-0.75">
+                      ₹{((profileData.discountActive 
+                        ? profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)
+                        : profileData.subPrice) * 3 * 0.9).toFixed(2)} total
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleSubscribeBundle(3, 10)}
+                    className={`text-xs px-5 py-2 rounded-full transition-all cursor-pointer ${
+                      isSubbed
+                        ? "bg-black/5 dark:bg-white/5 text-text-muted border border-border/80 font-semibold cursor-default select-none"
+                        : "border border-primary text-primary hover:bg-primary/5 font-black"
+                    }`}
+                  >
+                    {isSubbed ? "Subscribed" : "Subscribe"}
+                  </button>
                 </div>
-                <button
-                  onClick={() => handleSubscribeBundle(3, 10)}
-                  className={`text-xs px-5 py-2 rounded-full transition-all cursor-pointer ${
-                    isSubbed
-                      ? "bg-black/5 dark:bg-white/5 text-text-muted border border-border/80 font-semibold cursor-default select-none"
-                      : "border border-primary text-primary hover:bg-primary/5 font-black"
-                  }`}
-                >
-                  {isSubbed ? "Subscribed" : "Subscribe"}
-                </button>
-              </div>
 
-              {/* 6 Months */}
-              <div className="p-3.5 flex items-center justify-between hover:bg-black/[0.01] dark:hover:bg-white/[0.01] transition-colors">
-                <div>
-                  <p className="text-[12.5px] font-extrabold text-text-main">6 MONTHS (15% off)</p>
-                  <p className="text-[11px] text-text-muted font-semibold mt-0.75">
-                    ₹{((profileData.discountActive 
-                      ? profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)
-                      : profileData.subPrice) * 6 * 0.85).toFixed(2)} total
-                  </p>
+                {/* 6 Months */}
+                <div className="p-3.5 flex items-center justify-between hover:bg-black/[0.01] dark:hover:bg-white/[0.01] transition-colors">
+                  <div>
+                    <p className="text-[12.5px] font-extrabold text-text-main">6 MONTHS (15% off)</p>
+                    <p className="text-[11px] text-text-muted font-semibold mt-0.75">
+                      ₹{((profileData.discountActive 
+                        ? profileData.subPrice * (1 - (profileData.discountPercent || 0) / 100)
+                        : profileData.subPrice) * 6 * 0.85).toFixed(2)} total
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleSubscribeBundle(6, 15)}
+                    className={`text-xs px-5 py-2 rounded-full transition-all cursor-pointer ${
+                      isSubbed
+                        ? "bg-black/5 dark:bg-white/5 text-text-muted border border-border/80 font-semibold cursor-default select-none"
+                        : "border border-primary text-primary hover:bg-primary/5 font-black"
+                    }`}
+                  >
+                    {isSubbed ? "Subscribed" : "Subscribe"}
+                  </button>
                 </div>
-                <button
-                  onClick={() => handleSubscribeBundle(6, 15)}
-                  className={`text-xs px-5 py-2 rounded-full transition-all cursor-pointer ${
-                    isSubbed
-                      ? "bg-black/5 dark:bg-white/5 text-text-muted border border-border/80 font-semibold cursor-default select-none"
-                      : "border border-primary text-primary hover:bg-primary/5 font-black"
-                  }`}
-                >
-                  {isSubbed ? "Subscribed" : "Subscribe"}
-                </button>
               </div>
             </div>
-          </div>
+          )}
 
           {profileData.subPrice > 0 && !isSubbed && !isSelf ? (
             /* Premium Subscription Lock Screen */
@@ -587,121 +890,12 @@ function ProfileContent() {
             <>
               {/* Grid Tabs Toggle Row */}
               <div className="flex border-b border-border select-none bg-surface">
-                <button
-                  onClick={() => setActiveTab("posts")}
-                  className={`flex-1 py-3 flex flex-col items-center justify-center transition-colors cursor-pointer border-b-2 leading-none gap-1.5 ${
-                    activeTab === "posts" ? "border-primary text-primary" : "border-transparent text-text-muted"
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-[19px] font-medium" style={activeTab === "posts" ? { fontVariationSettings: "'FILL' 1" } : undefined}>grid_view</span>
-                  <span className="text-[9px] font-black tracking-wider uppercase">POSTS</span>
-                </button>
-                <button
-                  onClick={() => setActiveTab("photos")}
-                  className={`flex-1 py-3 flex flex-col items-center justify-center transition-colors cursor-pointer border-b-2 leading-none gap-1.5 ${
-                    activeTab === "photos" ? "border-primary text-primary" : "border-transparent text-text-muted"
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-[19px] font-medium" style={activeTab === "photos" ? { fontVariationSettings: "'FILL' 1" } : undefined}>image</span>
-                  <span className="text-[9px] font-black tracking-wider uppercase">PHOTOS</span>
-                </button>
-                <button
-                  onClick={() => setActiveTab("videos")}
-                  className={`flex-1 py-3 flex flex-col items-center justify-center transition-colors cursor-pointer border-b-2 leading-none gap-1.5 ${
-                    activeTab === "videos" ? "border-primary text-primary" : "border-transparent text-text-muted"
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-[19px] font-medium" style={activeTab === "videos" ? { fontVariationSettings: "'FILL' 1" } : undefined}>play_circle</span>
-                  <span className="text-[9px] font-black tracking-wider uppercase">VIDEOS</span>
-                </button>
-                <button
-                  onClick={() => setActiveTab("likes")}
-                  className={`flex-1 py-3 flex flex-col items-center justify-center transition-colors cursor-pointer border-b-2 leading-none gap-1.5 ${
-                    activeTab === "likes" ? "border-primary text-primary" : "border-transparent text-text-muted"
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-[19px] font-medium" style={activeTab === "likes" ? { fontVariationSettings: "'FILL' 1" } : undefined}>favorite</span>
-                  <span className="text-[9px] font-black tracking-wider uppercase">LIKES</span>
-                </button>
-                {isSelf && (
-                  <button
-                    onClick={() => setActiveTab("queue")}
-                    className={`flex-1 py-3 flex flex-col items-center justify-center transition-colors cursor-pointer border-b-2 leading-none gap-1.5 ${
-                      activeTab === "queue" ? "border-primary text-primary" : "border-transparent text-text-muted"
-                    }`}
-                  >
-                    <span className="material-symbols-outlined text-[19px] font-medium" style={activeTab === "queue" ? { fontVariationSettings: "'FILL' 1" } : undefined}>schedule</span>
-                    <span className="text-[9px] font-black tracking-wider uppercase">QUEUE</span>
-                  </button>
-                )}
+                {renderTabButtons()}
               </div>
 
               {/* Grid Viewport */}
               <div className="p-3.5 select-none">
-                {activeTab === "queue" ? (
-                  <div className="space-y-5">
-                    {filteredPosts.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center py-20 text-center space-y-2.5">
-                        <span className="material-symbols-outlined text-[44px] text-text-muted animate-pulse">schedule</span>
-                        <p className="text-xs font-extrabold text-text-main uppercase tracking-wider">Empty queue</p>
-                        <p className="text-[11px] text-text-muted max-w-[240px]">You have no scheduled updates in your queue.</p>
-                      </div>
-                    ) : (
-                      filteredPosts.map((post) => (
-                        <PostCard
-                          key={post.id}
-                          post={post}
-                          onPostUpdate={fetchProfile}
-                        />
-                      ))
-                    )}
-                  </div>
-                ) : filteredPosts.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-20 text-center space-y-2.5">
-                    <span className="material-symbols-outlined text-[44px] text-text-muted">feed</span>
-                    <p className="text-xs font-extrabold text-text-main uppercase tracking-wider">No updates listed</p>
-                    <p className="text-[11px] text-text-muted max-w-[240px]">This tab has no active updates published.</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-                    {filteredPosts.map((post) => {
-                      const locked = isPostLocked(post);
-                      return (
-                        <div
-                          key={post.id}
-                          onClick={() => handlePostClick(post)}
-                          className="relative aspect-[3/4] rounded-2xl overflow-hidden cursor-pointer group shadow-sm bg-surface-container border border-border/40 transition-transform duration-200 hover:scale-[1.015]"
-                        >
-                          {locked ? (
-                            <>
-                              {/* Blurred cover preview */}
-                              <img
-                                src={post.mediaUrl}
-                                alt="Locked content preview"
-                                className="h-full w-full object-cover filter blur-[9px] scale-[1.06] opacity-[0.76]"
-                              />
-                              {/* Lock graphic block */}
-                              <div className="absolute inset-0 bg-black/25 flex flex-col items-center justify-center text-white">
-                                <span className="material-symbols-outlined text-[18px] text-white/95 leading-none mb-1.5" style={{ fontVariationSettings: "'FILL' 1" }}>
-                                  lock
-                                </span>
-                                <span className="text-[10px] font-black text-white/90 bg-black/40 px-2 py-0.75 rounded-full tracking-wider shadow-sm">
-                                  ₹{post.price}
-                                </span>
-                              </div>
-                            </>
-                          ) : (
-                            <img
-                              src={post.mediaUrl}
-                              alt="Feed content item"
-                              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                {renderTabContent()}
               </div>
             </>
           )}

@@ -2,8 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { mockDb, UserProfile } from "@/lib/mockDb";
-import { apiClient } from "@/lib/apiClient";
-import { useUser as useClerkUser } from "@clerk/nextjs";
+import { apiClient, ApiError } from "@/lib/apiClient";
 
 
 interface UserContextType {
@@ -26,6 +25,8 @@ interface UserContextType {
   toggleBlock: (username: string) => Promise<boolean>;
   toggleFavorite: (username: string) => Promise<boolean>;
   markNotificationsAsRead: () => void;
+  loginAsSeedUser: (email: string) => Promise<void>;
+  logout: () => void;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -104,8 +105,6 @@ const getErrorMessage = (err: unknown, fallback: string) => (
 );
 
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isLoaded: isClerkLoaded, isSignedIn: isClerkSignedIn, user: clerkUser } = useClerkUser();
-
   const [user, setUser] = useState<UserProfile | null>(null);
   const [authStatus, setAuthStatus] = useState<"checking" | "syncing" | "ready">("checking");
   const [authError, setAuthError] = useState<string | null>(null);
@@ -123,16 +122,25 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, 2500);
   };
 
+  const logout = () => {
+    localStorage.removeItem("ch_token");
+    localStorage.removeItem("ch_backend_unavailable");
+    localStorage.setItem("ch_logged_out", "true");
+    setUser(null);
+    setWalletBalance(0);
+    setBlockedUsers([]);
+    setFavoriteCreators([]);
+    setSubscriptions([]);
+    setAuthError(null);
+    setAuthStatus("ready");
+  };
+
   const refreshUserProfile = async () => {
     if (typeof window === 'undefined') return;
     
     const token = localStorage.getItem("ch_token");
     if (!token) {
-      if (isClerkSignedIn) {
-        setUser(null);
-      } else {
-        setUser(null);
-      }
+      setUser(null);
       return;
     }
 
@@ -142,6 +150,14 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (prev && JSON.stringify(prev) === JSON.stringify(profile)) return prev;
         return profile;
       });
+
+      // Update localStorage with normalized profile details and mark onboarding as complete
+      localStorage.setItem("ch_user_username", profile.username);
+      localStorage.setItem("ch_user_display_name", profile.displayName);
+      localStorage.setItem("ch_user_avatar", profile.avatar);
+      localStorage.setItem("ch_user_role", profile.role);
+      localStorage.setItem("ch_user_bio", profile.bio);
+      localStorage.setItem("ch_onboarding_done", "true");
 
       const walletState = await apiClient.get<{ balance: number }>("/wallet");
       setWalletBalance(walletState.balance);
@@ -159,77 +175,37 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUnreadNotificationsCount(prev => (prev === unreadCount ? prev : unreadCount));
     } catch (err) {
       setUser(null);
-      setAuthError(getErrorMessage(err, "Unable to refresh profile from the API."));
+      if (err instanceof ApiError && err.status === 401) {
+        logout();
+      } else {
+        setAuthError(getErrorMessage(err, "Unable to refresh profile from the API."));
+      }
     }
   };
 
   const retryAuthSync = async () => {
-    if (!isClerkLoaded || !isClerkSignedIn || !clerkUser) return;
-
     setAuthStatus("syncing");
     setAuthError(null);
-
-    const email = clerkUser.primaryEmailAddress?.emailAddress;
-    if (!email) {
-      setAuthError("Clerk account is missing a primary email address.");
+    if (typeof window === "undefined" || !localStorage.getItem("ch_token")) {
+      setUser(null);
       setAuthStatus("ready");
       return;
     }
-
-    const displayName = clerkUser.fullName || clerkUser.username || email.split("@")[0];
-    const avatar = clerkUser.imageUrl || "/assets/39bc5c3eed51d62c1022c60686bb459a.png";
-
-    try {
-      const response = await apiClient.post<{ token: string; user?: BackendUserProfile }>("/auth/clerk-sync", {
-        email,
-        display_name: displayName,
-        avatar
-      });
-
-      localStorage.setItem("ch_token", response.token);
-      localStorage.setItem("ch_onboarding_done", "true");
-      localStorage.removeItem("ch_logged_out");
-      localStorage.removeItem("ch_backend_unavailable");
-
-      if (response.user) {
-        setUser(normalizeProfile(response.user));
-      }
-
-      await refreshUserProfile();
-    } catch (err) {
-      localStorage.removeItem("ch_token");
-      localStorage.removeItem("ch_backend_unavailable");
-      localStorage.removeItem("ch_logged_out");
-      setUser(null);
-      setWalletBalance(0);
-      setBlockedUsers([]);
-      setFavoriteCreators([]);
-      setSubscriptions([]);
-      setAuthError(getErrorMessage(err, "Unable to sync Clerk session with the Supabase-backed API."));
-    } finally {
-      setAuthStatus("ready");
-    }
+    await refreshUserProfile();
+    setAuthStatus("ready");
   };
 
   useEffect(() => {
-    if (!isClerkLoaded) return;
-
-    if (!isClerkSignedIn) {
-      localStorage.removeItem("ch_token");
-      localStorage.removeItem("ch_backend_unavailable");
-      localStorage.setItem("ch_logged_out", "true");
-      window.setTimeout(() => {
-        setUser(null);
-        setAuthError(null);
-        setAuthStatus("ready");
-      }, 0);
+    if (typeof window === "undefined") return;
+    const token = localStorage.getItem("ch_token");
+    if (!token) {
+      setUser(null);
+      setAuthError(null);
+      setAuthStatus("ready");
       return;
     }
-
-    window.setTimeout(() => {
-      retryAuthSync();
-    }, 0);
-  }, [isClerkLoaded, isClerkSignedIn, clerkUser]);
+    retryAuthSync();
+  }, []);
 
   useEffect(() => {
 
@@ -294,7 +270,10 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     try {
-      await apiClient.put("/users/profile", payload);
+      const response = await apiClient.put<{ token?: string }>("/users/profile", payload);
+      if (response?.token) {
+        localStorage.setItem("ch_token", response.token);
+      }
       await refreshUserProfile();
       return true;
     } catch (err: unknown) {
@@ -395,6 +374,31 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginAsSeedUser = async (email: string) => {
+    setAuthStatus("syncing");
+    try {
+      const response = await apiClient.post<{ token: string; user?: BackendUserProfile }>("/auth/login", {
+        email: email,
+        password: "password123"
+      });
+      localStorage.setItem("ch_token", response.token);
+      localStorage.removeItem("ch_logged_out");
+      localStorage.removeItem("ch_backend_unavailable");
+      if (response.user) {
+        setUser(normalizeProfile(response.user));
+      }
+      await refreshUserProfile();
+      showToast(`Switched user to ${response.user?.username || email}`);
+      window.dispatchEvent(new CustomEvent("ch_profile_updated"));
+    } catch (err) {
+      showToast(getErrorMessage(err, "User switch failed"));
+    } finally {
+      setAuthStatus("ready");
+    }
+  };
+
+
+
 
   return (
     <UserContext.Provider
@@ -417,7 +421,9 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         unsubscribeFromCreator,
         toggleBlock,
         toggleFavorite,
-        markNotificationsAsRead
+        markNotificationsAsRead,
+        loginAsSeedUser,
+        logout
       }}
     >
       {children}

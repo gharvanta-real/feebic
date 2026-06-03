@@ -1,18 +1,199 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:dio/dio.dart';
 import '../../../../core/cubit/user_mode_cubit.dart';
-import '../../../../core/state/demo_app_state.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
+import '../../../shared/widgets/skeleton_loader.dart';
 import '../../../chat/presentation/screens/chat_list_screen.dart';
-import '../../../shared/widgets/user_avatar.dart';
 import '../widgets/feed_card.dart';
 import '../widgets/stories_bar.dart';
 import 'create_post_screen.dart';
+import '../../../../core/di/injection.dart';
+import '../../../../core/network/api_client.dart';
+import '../../../../core/network/post_model.dart';
+import '../../../notifications/presentation/screens/notifications_screen.dart';
 
-class FeedScreen extends StatelessWidget {
+class FeedScreen extends StatefulWidget {
   const FeedScreen({super.key});
+
+  @override
+  State<FeedScreen> createState() => _FeedScreenState();
+}
+
+class _FeedScreenState extends State<FeedScreen> {
+  List<PostModel> _posts = [];
+  bool _isLoading = false;
+  bool _isLoadingMore = false;
+  bool _isLoadingCreatorStats = false;
+  bool _creatorStatsRequested = false;
+  bool _hasMore = true;
+  int _page = 1;
+  static const int _limit = 10;
+  String? _errorMessage;
+  double _creatorBalance = 0;
+  int _creatorViews = 0;
+  int _creatorSubscribers = 0;
+  int _creatorLikes = 0;
+  late ScrollController _scrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+    _scrollController.addListener(_onScroll);
+    _fetchPosts(reset: true);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients || _isLoading) return;
+    if (_scrollController.position.pixels >=
+            _scrollController.position.maxScrollExtent - 300 &&
+        !_isLoadingMore &&
+        _hasMore) {
+      _fetchMorePosts();
+    }
+  }
+
+  Future<void> _fetchMorePosts() async {
+    if (_isLoading || _isLoadingMore || !_hasMore) return;
+    setState(() => _isLoadingMore = true);
+    try {
+      final response = await getIt<ApiClient>()
+          .get('/posts', queryParameters: {'page': _page, 'limit': _limit});
+      if (response.statusCode == 200) {
+        final data = _extractPostList(response.data);
+        final newPosts = data
+            .whereType<Map>()
+            .map((e) => PostModel.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+        if (!mounted) return;
+        setState(() {
+          _posts.addAll(newPosts);
+          _page++;
+          _hasMore = newPosts.length == _limit;
+          _isLoadingMore = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching more posts: $e');
+      if (mounted) setState(() => _isLoadingMore = false);
+    }
+  }
+
+  Future<void> _fetchCreatorStats() async {
+    if (_isLoadingCreatorStats) return;
+    setState(() => _isLoadingCreatorStats = true);
+    try {
+      final responses = await Future.wait([
+        getIt<ApiClient>().get('/wallet'),
+        getIt<ApiClient>().get(
+          '/posts',
+          queryParameters: {'page': 1, 'limit': 30},
+        ),
+        getIt<ApiClient>().get('/users/subscriptions'),
+      ]);
+
+      final wallet = responses[0].data is Map
+          ? Map<String, dynamic>.from(responses[0].data as Map)
+          : <String, dynamic>{};
+      final posts = _extractPostList(responses[1].data)
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+      final subscriptions =
+          responses[2].data is List ? responses[2].data as List : <dynamic>[];
+
+      if (!mounted) return;
+      setState(() {
+        _creatorBalance = ((wallet['balance'] ?? 0) as num).toDouble();
+        _creatorLikes = posts.fold<int>(
+          0,
+          (total, post) => total + ((post['likes'] ?? 0) as num).toInt(),
+        );
+        _creatorViews = posts.length;
+        _creatorSubscribers = subscriptions.length;
+      });
+    } catch (e) {
+      debugPrint('Error loading creator stats: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _creatorStatsRequested = true;
+          _isLoadingCreatorStats = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _fetchPosts({bool reset = false}) async {
+    if (reset) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+        _page = 1;
+        _hasMore = true;
+      });
+    } else {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
+    try {
+      final response = await getIt<ApiClient>()
+          .get('/posts', queryParameters: {'page': 1, 'limit': _limit});
+      if (response.statusCode == 200) {
+        final data = _extractPostList(response.data);
+        final newPosts = data
+            .whereType<Map>()
+            .map((e) => PostModel.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+        if (!mounted) return;
+        setState(() {
+          _posts = newPosts;
+          _page = 2;
+          _hasMore = newPosts.length == _limit;
+        });
+      } else {
+        if (!mounted) return;
+        setState(() => _errorMessage = 'Failed to load feed data');
+      }
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      final serverError = e.response?.data is Map
+          ? e.response?.data['error']?.toString()
+          : null;
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = serverError ??
+            (status == null
+                ? 'Connection error: API is not reachable.'
+                : 'Feed error: server returned HTTP $status.');
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() =>
+          _errorMessage = 'Feed data could not be parsed. Please refresh.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  List<dynamic> _extractPostList(dynamic data) {
+    if (data is List) return data;
+    if (data is Map && data['posts'] is List) return data['posts'] as List;
+    if (data is Map && data['data'] is List) return data['data'] as List;
+    return <dynamic>[];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -36,30 +217,18 @@ class FeedScreen extends StatelessWidget {
         ),
         actions: [
           IconButton(
-            icon: AnimatedBuilder(
-              animation: DemoAppState.instance,
-              builder: (context, child) => Badge(
-                isLabelVisible: DemoAppState.instance.notificationsCount > 0,
-                label: Text('${DemoAppState.instance.notificationsCount}'),
-                child: child,
-              ),
-              child: const Icon(Icons.favorite_border_rounded, size: 22),
-            ),
+            icon: const Icon(Icons.favorite_border_rounded, size: 22),
             onPressed: () {
-              DemoAppState.instance.markNotificationsSeen();
-              _showActivitySheet(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const NotificationsScreen(),
+                ),
+              );
             },
           ),
           IconButton(
-            icon: AnimatedBuilder(
-              animation: DemoAppState.instance,
-              builder: (context, child) => Badge(
-                isLabelVisible: DemoAppState.instance.unreadChats > 0,
-                label: Text('${DemoAppState.instance.unreadChats}'),
-                child: child,
-              ),
-              child: const Icon(Icons.send_rounded, size: 20),
-            ),
+            icon: const Icon(Icons.send_rounded, size: 20),
             onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -68,51 +237,135 @@ class FeedScreen extends StatelessWidget {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () async =>
-            Future<void>.delayed(const Duration(milliseconds: 600)),
-        child: AnimatedBuilder(
-          animation: DemoAppState.instance,
-          builder: (context, _) {
-            final posts = DemoAppState.instance.posts;
-            return ListView.builder(
-              itemCount: posts.length + 1,
-              itemBuilder: (context, index) {
-                if (index == 0) {
-                  return const Column(
-                    children: [
-                      StoriesBar(),
-                      Divider(height: 1),
-                    ],
-                  );
-                }
-                final post = posts[index - 1];
-                return FeedCard(
-                  postId: post.postId,
-                  username: post.username,
-                  avatarUrl: post.avatarUrl,
-                  isVerified: post.isVerified,
-                  caption: post.caption,
-                  imageUrl: post.imageUrl,
-                  videoUrl: post.videoUrl,
-                  isLocked: post.isLocked,
-                  unlockPrice: post.unlockPrice,
-                  isVideo: post.isVideo,
-                  likes: post.likes,
-                  comments: post.comments,
-                  onLikePressed: () {},
-                  onCommentPressed: () {},
-                  onUnlockPressed: () {},
-                );
-              },
-            );
-          },
-        ),
+        onRefresh: () => _fetchPosts(reset: true),
+        child: _isLoading
+            ? _buildSkeletonFeed()
+            : _errorMessage != null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.error_outline_rounded,
+                              size: 40,
+                              color: Theme.of(context).colorScheme.error),
+                          AppSpacing.gapSM,
+                          Text(_errorMessage!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(fontSize: 14)),
+                          AppSpacing.gapMD,
+                          ElevatedButton.icon(
+                            onPressed: _fetchPosts,
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('Try Again'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : _posts.isEmpty
+                    ? ListView(
+                        children: [
+                          const StoriesBar(),
+                          const Divider(height: 1),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 80),
+                            child: Center(
+                              child: Column(
+                                children: [
+                                  Icon(Icons.feed_outlined,
+                                      size: 40,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface
+                                          .withOpacity(0.4)),
+                                  AppSpacing.gapSM,
+                                  const Text('No posts yet',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 15)),
+                                  const SizedBox(height: 4),
+                                  const Text('Be the first creator to post!',
+                                      style: TextStyle(
+                                          fontSize: 12, color: Colors.grey)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    : ListView.builder(
+                        controller: _scrollController,
+                        itemCount: _posts.length + 1 + (_isLoadingMore ? 1 : 0),
+                        addAutomaticKeepAlives: false,
+                        addRepaintBoundaries: true,
+                        cacheExtent: 1200,
+                        itemBuilder: (context, index) {
+                          if (index == 0) {
+                            return const Column(
+                              children: [
+                                StoriesBar(),
+                                Divider(height: 1),
+                              ],
+                            );
+                          }
+                          // Infinite scroll loading footer
+                          if (index == _posts.length + 1) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 24),
+                              child: Center(
+                                child: SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              ),
+                            );
+                          }
+                          final post = _posts[index - 1];
+                          return FeedCard(
+                            postId: post.id,
+                            username: post.creatorUsername,
+                            avatarUrl: post.creatorAvatar.isNotEmpty
+                                ? post.creatorAvatar
+                                : '',
+                            isVerified: true,
+                            caption: post.content,
+                            imageUrl: post.mediaUrls.isNotEmpty
+                                ? post.mediaUrls.first
+                                : null,
+                            videoUrl: post.mediaUrls.isNotEmpty &&
+                                    post.mediaType == 'video'
+                                ? post.mediaUrls.first
+                                : null,
+                            isLocked: post.isLocked,
+                            unlockPrice: post.price > 0
+                                ? 'Rs ${post.price.toStringAsFixed(0)}'
+                                : null,
+                            isVideo: post.mediaType == 'video',
+                            likes: post.likes,
+                            comments: post.commentsCount,
+                            isLiked: post.isLiked,
+                            isBookmarked: post.isBookmarked,
+                            onLikePressed: () {},
+                            onCommentPressed: () {},
+                            onUnlockPressed: () {},
+                          );
+                        },
+                      ),
       ),
     );
   }
 
   Widget _buildCreatorFeed(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    if (!_creatorStatsRequested && !_isLoadingCreatorStats) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _fetchCreatorStats();
+      });
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -136,45 +389,16 @@ class FeedScreen extends StatelessWidget {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () async =>
-            Future<void>.delayed(const Duration(milliseconds: 600)),
+        onRefresh: _fetchCreatorStats,
         child: ListView(
           padding: AppSpacing.pAllMD,
           children: [
-            AnimatedBuilder(
-              animation: DemoAppState.instance,
-              builder: (context, _) => _buildAnalyticsCard(isDark),
-            ),
+            _buildAnalyticsCard(isDark),
             AppSpacing.gapLG,
-            const Text('Recent Activity',
+            const Text('Creator Activity',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             AppSpacing.gapSM,
-            _buildActivityItem(
-              username: 'mark_daniels',
-              avatarUrl:
-                  'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde',
-              action: 'liked your public post',
-              time: '2m ago',
-              isDark: isDark,
-            ),
-            _buildActivityItem(
-              username: 'sarah_jones',
-              avatarUrl:
-                  'https://images.unsplash.com/photo-1494790108377-be9c29b29330',
-              action: 'unlocked your Premium Travel Post for Rs 799',
-              time: '12m ago',
-              isEarning: true,
-              isDark: isDark,
-            ),
-            _buildActivityItem(
-              username: 'alex_green',
-              avatarUrl:
-                  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d',
-              action: 'subscribed to your profile (Tier 1)',
-              time: '1h ago',
-              isEarning: true,
-              isDark: isDark,
-            ),
+            _buildEmptyActivity(isDark),
           ],
         ),
       ),
@@ -182,7 +406,6 @@ class FeedScreen extends StatelessWidget {
   }
 
   Widget _buildAnalyticsCard(bool isDark) {
-    final state = DemoAppState.instance;
     return Container(
       padding: AppSpacing.pAllMD,
       decoration: BoxDecoration(
@@ -208,32 +431,22 @@ class FeedScreen extends StatelessWidget {
                     fontSize: 13,
                     fontWeight: FontWeight.w500),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.xs, vertical: AppSpacing.xxs),
-                decoration: BoxDecoration(
-                    color:
-                        isDark ? AppColors.darkSuccess : AppColors.lightSuccess,
-                    borderRadius: AppRadius.rXS),
-                child: const Text('+12.8%',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold)),
-              ),
+              const Icon(Icons.insights_rounded, size: 18),
             ],
           ),
           AppSpacing.gapXS,
-          Text('Rs ${state.creatorEarnings.toStringAsFixed(2)}',
-              style:
-                  const TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
+          _isLoadingCreatorStats
+              ? const SkeletonLoader(width: 120, height: 34)
+              : Text('Rs ${_creatorBalance.toStringAsFixed(2)}',
+                  style: const TextStyle(
+                      fontSize: 28, fontWeight: FontWeight.w900)),
           AppSpacing.gapMD,
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _buildMiniMetric('14.2K', 'Views', isDark),
-              _buildMiniMetric('340', 'Subscribers', isDark),
-              _buildMiniMetric('${180 + state.savedCount}', 'Likes', isDark),
+              _buildMiniMetric('$_creatorViews', 'Posts', isDark),
+              _buildMiniMetric('$_creatorSubscribers', 'Subscribers', isDark),
+              _buildMiniMetric('$_creatorLikes', 'Likes', isDark),
             ],
           ),
         ],
@@ -257,14 +470,7 @@ class FeedScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildActivityItem({
-    required String username,
-    required String avatarUrl,
-    required String action,
-    required String time,
-    bool isEarning = false,
-    required bool isDark,
-  }) {
+  Widget _buildEmptyActivity(bool isDark) {
     return Container(
       margin: const EdgeInsets.only(bottom: AppSpacing.sm),
       padding: AppSpacing.pAllSM,
@@ -280,78 +486,75 @@ class FeedScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
-          UserAvatar(imageUrl: avatarUrl, radius: 18),
+          const Icon(Icons.bolt_rounded),
           AppSpacing.gapSM,
           Expanded(
-            child: RichText(
-              text: TextSpan(
-                style: TextStyle(
-                    color: isDark
-                        ? AppColors.darkTextMain
-                        : AppColors.lightTextMain,
-                    fontSize: 13,
-                    fontFamily: 'Inter'),
-                children: [
-                  TextSpan(
-                      text: '$username ',
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                  TextSpan(
-                    text: action,
-                    style: TextStyle(
-                      color: isEarning
-                          ? (isDark
-                              ? AppColors.darkSuccess
-                              : AppColors.lightSuccess)
-                          : (isDark
-                              ? AppColors.darkTextMain
-                              : AppColors.lightTextMain),
-                      fontWeight:
-                          isEarning ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          AppSpacing.gapSM,
-          Text(time,
+            child: Text(
+              'Real activity will appear after followers interact with your posts.',
               style: TextStyle(
                   color: isDark
                       ? AppColors.darkTextMuted
                       : AppColors.lightTextMuted,
-                  fontSize: 11)),
+                  fontSize: 13),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  void _showActivitySheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
-      builder: (context) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          padding: AppSpacing.pAllMD,
-          children: const [
-            Text('Activity',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            AppSpacing.gapSM,
-            ListTile(
-                leading: Icon(Icons.favorite_rounded),
-                title: Text('alexandra_art liked your reply'),
-                subtitle: Text('2m ago')),
-            ListTile(
-                leading: Icon(Icons.lock_open_rounded),
-                title: Text('premium_clicks posted new unlockable media'),
-                subtitle: Text('15m ago')),
-            ListTile(
-                leading: Icon(Icons.person_add_alt_1_rounded),
-                title: Text('lucia_fit opened a new subscriber tier'),
-                subtitle: Text('1h ago')),
-          ],
-        ),
+  Widget _buildSkeletonFeed() {
+    return ListView.builder(
+      itemCount: 5,
+      padding: EdgeInsets.zero,
+      itemBuilder: (context, index) {
+        if (index == 0) {
+          return const Column(
+            children: [
+              SizedBox(height: 96, child: StoriesBar()),
+              Divider(height: 1),
+            ],
+          );
+        }
+        return const _FeedCardSkeleton();
+      },
+    );
+  }
+}
+
+class _FeedCardSkeleton extends StatelessWidget {
+  const _FeedCardSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.only(bottom: AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.sm,
+            ),
+            child: Row(
+              children: [
+                SkeletonLoader(
+                    width: 36, height: 36, borderRadius: AppRadius.rFull),
+                AppSpacing.gapSM,
+                SkeletonLoader(width: 120, height: 14),
+              ],
+            ),
+          ),
+          AspectRatio(
+            aspectRatio: 1.1,
+            child: SkeletonLoader(borderRadius: BorderRadius.zero),
+          ),
+          Padding(
+            padding: EdgeInsets.all(AppSpacing.md),
+            child: SkeletonLoader(width: 220, height: 14),
+          ),
+        ],
       ),
     );
   }

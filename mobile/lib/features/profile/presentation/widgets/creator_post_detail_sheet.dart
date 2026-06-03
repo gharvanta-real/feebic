@@ -3,10 +3,10 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/state/demo_app_state.dart';
-import 'package:feebic_mobile/features/shared/widgets/verified_badge.dart';
-import 'package:feebic_mobile/features/shared/widgets/user_avatar.dart';
-import 'package:feebic_mobile/features/shared/widgets/locked_content_card.dart';
-import 'package:feebic_mobile/features/shared/widgets/optimized_network_image.dart';
+import 'package:felbic_mobile/features/shared/widgets/verified_badge.dart';
+import 'package:felbic_mobile/features/shared/widgets/user_avatar.dart';
+import 'package:felbic_mobile/features/shared/widgets/locked_content_card.dart';
+import 'package:felbic_mobile/features/shared/widgets/optimized_network_image.dart';
 
 class CreatorPostDetailSheet extends StatefulWidget {
   final Map<String, dynamic> post;

@@ -15,8 +15,8 @@ class SecureStorage {
           ),
         );
 
-  static const String _accessTokenKey = 'clerk_access_token';
-  static const String _refreshTokenKey = 'clerk_refresh_token';
+  static const String _accessTokenKey = 'felbic_access_token';
+  static const String _refreshTokenKey = 'felbic_refresh_token';
 
   Future<void> saveAccessToken(String token) async {
     await _storage.write(key: _accessTokenKey, value: token);

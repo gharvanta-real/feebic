@@ -25,14 +25,14 @@ interface TopPost {
 export default function CreatorStudioPage() {
   const { user } = useUser();
   
-  // Studio stats loaded from local storage
-  const [earnings, setEarnings] = useState("14280.50");
-  const [subscribers, setSubscribers] = useState("1248");
-  const [postCount, setPostCount] = useState("48");
+  const [earnings, setEarnings] = useState("0.00");
+  const [subscribers, setSubscribers] = useState("0");
+  const [postCount, setPostCount] = useState("0");
   const [directTips, setDirectTips] = useState("0.00");
   const [totalLikes, setTotalLikes] = useState("0");
   const [totalComments, setTotalComments] = useState("0");
   const [isBankLinked, setIsBankLinked] = useState(false);
+  const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(true);
   const [topFans, setTopFans] = useState<TopFan[]>([]);
   const [topPosts, setTopPosts] = useState<TopPost[]>([]);
 
@@ -40,9 +40,10 @@ export default function CreatorStudioPage() {
     if (typeof window === "undefined" || !user) return;
 
     const refreshAnalytics = async () => {
+      setIsAnalyticsLoading(true);
       const [wallet, posts, creator, bank] = await Promise.all([
         apiClient.get<{ transactions: { amount: number; type: string; title: string }[] }>("/wallet"),
-        apiClient.get<any[]>("/posts"),
+        apiClient.get<any[]>(`/posts?username=${encodeURIComponent(user.username)}&page=1&limit=30`),
         apiClient.get<any>(`/users/creator/${user.username}`),
         apiClient.get<{ linked?: boolean }>("/wallet/bank").catch(() => ({ linked: false })),
       ]);
@@ -72,10 +73,11 @@ export default function CreatorStudioPage() {
           .slice(0, 5)
       );
       setIsBankLinked(!!bank?.linked);
+      setIsAnalyticsLoading(false);
     };
 
     window.setTimeout(() => {
-      refreshAnalytics().catch(() => {});
+      refreshAnalytics().catch(() => setIsAnalyticsLoading(false));
     }, 0);
     window.addEventListener("ch_posts_updated", refreshAnalytics);
     window.addEventListener("ch_post_liked", refreshAnalytics);
@@ -115,7 +117,7 @@ export default function CreatorStudioPage() {
               {/* Earnings Widget */}
               <div className="bg-surface border border-border p-4.5 rounded-2xl shadow-sm space-y-1 relative overflow-hidden">
                 <p className="text-[9px] text-text-muted font-black uppercase tracking-wider">Gross Payouts</p>
-                <h3 className="text-lg font-black text-success">₹{earnings}</h3>
+                <h3 className="text-lg font-black text-success">{isAnalyticsLoading ? "Loading..." : `₹${earnings}`}</h3>
                 <p className="text-[9px] text-text-muted font-semibold leading-none">85% Creator split share</p>
                 <span className="absolute bottom-2 right-2 material-symbols-outlined text-[24px] text-success/15" style={{ fontVariationSettings: "'FILL' 1" }}>
                   payments
@@ -125,7 +127,7 @@ export default function CreatorStudioPage() {
               {/* Subscribers Widget */}
               <div className="bg-surface border border-border p-4.5 rounded-2xl shadow-sm space-y-1 relative overflow-hidden">
                 <p className="text-[9px] text-text-muted font-black uppercase tracking-wider">Active Subs</p>
-                <h3 className="text-lg font-black text-primary">{subscribers}</h3>
+                <h3 className="text-lg font-black text-primary">{isAnalyticsLoading ? "Loading..." : subscribers}</h3>
                 <p className="text-[9px] text-text-muted font-semibold leading-none">+12.4% growth this month</p>
                 <span className="absolute bottom-2 right-2 material-symbols-outlined text-[24px] text-primary/15" style={{ fontVariationSettings: "'FILL' 1" }}>
                   group
@@ -135,7 +137,7 @@ export default function CreatorStudioPage() {
               {/* Tips Widget */}
               <div className="bg-surface border border-border p-4.5 rounded-2xl shadow-sm space-y-1 relative overflow-hidden">
                 <p className="text-[9px] text-text-muted font-black uppercase tracking-wider">Direct Tips</p>
-                <h3 className="text-lg font-black text-text-main">₹{directTips}</h3>
+                <h3 className="text-lg font-black text-text-main">{isAnalyticsLoading ? "Loading..." : `₹${directTips}`}</h3>
                 <p className="text-[9px] text-text-muted font-semibold leading-none">{totalComments} comments across posts</p>
                 <span className="absolute bottom-2 right-2 material-symbols-outlined text-[24px] text-text-main/10" style={{ fontVariationSettings: "'FILL' 1" }}>
                   wallet
@@ -145,7 +147,7 @@ export default function CreatorStudioPage() {
               {/* Posts Published Widget */}
               <div className="bg-surface border border-border p-4.5 rounded-2xl shadow-sm space-y-1 relative overflow-hidden">
                 <p className="text-[9px] text-text-muted font-black uppercase tracking-wider">Total Posts</p>
-                <h3 className="text-lg font-black text-text-main">{postCount} updates</h3>
+                <h3 className="text-lg font-black text-text-main">{isAnalyticsLoading ? "Loading..." : `${postCount} updates`}</h3>
                 <p className="text-[9px] text-text-muted font-semibold leading-none">{totalLikes} total likes</p>
                 <span className="absolute bottom-2 right-2 material-symbols-outlined text-[24px] text-text-main/10" style={{ fontVariationSettings: "'FILL' 1" }}>
                   grid_view

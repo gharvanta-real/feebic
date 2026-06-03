@@ -9,7 +9,7 @@ import { RoleGuard } from "@/components/layout/RoleGuard";
 import type { VaultItem } from "@/lib/mockDb";
 import { Modal } from "@/components/ui/Modal";
 import { apiClient } from "@/lib/apiClient";
-import { uploadToCloudinary } from "@/lib/cloudinaryClient";
+import { uploadToCloudinary, validateVideoFile } from "@/lib/cloudinaryClient";
 import { VideoPlayer } from "@/components/features/VideoPlayer";
 
 type DraftPoll = {
@@ -116,28 +116,44 @@ export default function CreatePostPage() {
   }, [user]);
 
   // File Handlers
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
 
-    const newAttachments = Array.from(files).map((file) => {
+    const validatedAttachments: AttachedMedia[] = [];
+    
+    for (const file of Array.from(files)) {
       const type = file.type.startsWith("video/")
         ? "video"
         : file.type.startsWith("audio/")
         ? "audio"
         : "image";
 
-      return {
+      if (type === "video") {
+        showToast("Validating video file...");
+        const check = await validateVideoFile(file, {
+          maxDurationSeconds: 600, // 10 minutes
+          maxSizeBytes: 100 * 1024 * 1024, // 100 MB
+        });
+        if (!check.isValid) {
+          showToast(check.error || "Invalid video file");
+          continue;
+        }
+      }
+
+      validatedAttachments.push({
         file,
         url: "",
         type: type as "image" | "video" | "audio",
         name: file.name,
         preview: URL.createObjectURL(file),
-      };
-    });
+      });
+    }
 
-    setAttachedFiles((prev) => [...prev, ...newAttachments]);
-    showToast(`Attached ${files.length} file(s)`);
+    if (validatedAttachments.length > 0) {
+      setAttachedFiles((prev) => [...prev, ...validatedAttachments]);
+      showToast(`Attached ${validatedAttachments.length} file(s)`);
+    }
   };
 
   const handleRemoveAttachedFile = (index: number) => {
@@ -146,11 +162,24 @@ export default function CreatePostPage() {
     setAttachedFiles(updated);
   };
 
-  const handleTeaserSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTeaserSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const type = file.type.startsWith("video/") ? "video" : "image";
+    
+    if (type === "video") {
+      showToast("Validating teaser video...");
+      const check = await validateVideoFile(file, {
+        maxDurationSeconds: 30, // 30 seconds for teasers!
+        maxSizeBytes: 20 * 1024 * 1024, // 20 MB for teasers
+      });
+      if (!check.isValid) {
+        showToast(check.error || "Invalid teaser video file");
+        return;
+      }
+    }
+
     setTeaserFile(file);
     setTeaserType(type);
     setTeaserName(file.name);
@@ -1069,7 +1098,7 @@ export default function CreatePostPage() {
                               {/* Watermark security overlay */}
                               <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden opacity-10">
                                 <span className="text-[14px] font-semibold tracking-widest text-white transform -rotate-12 whitespace-nowrap">
-                                  feebic.in/@{user?.username}
+                                  felbic.in/@{user?.username}
                                 </span>
                               </div>
 

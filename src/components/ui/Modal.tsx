@@ -8,9 +8,17 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  size?: "sm" | "md" | "lg" | "xl";
 }
 
-export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
+const sizeClasses = {
+  sm: "max-w-[440px]",
+  md: "max-w-[540px]",
+  lg: "max-w-[660px]",
+  xl: "max-w-[780px]"
+};
+
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size }) => {
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = "hidden"; // lock scroll when modal is active
@@ -30,7 +38,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }
       <div className="absolute inset-0 cursor-pointer" onClick={onClose} />
 
       {/* Modal Container */}
-      <div className="relative my-auto w-full max-w-[440px] max-h-[calc(100dvh-32px)] overflow-y-auto rounded-2xl border border-border bg-surface p-5 md:p-6 transition-transform animate-fade-in max-sm:max-w-full">
+      <div className={`relative my-auto w-full ${sizeClasses[size || "sm"]} max-h-[calc(100dvh-32px)] overflow-y-auto rounded-2xl border border-border bg-surface p-5 md:p-6 transition-transform animate-fade-in max-sm:max-w-full`}>
         {/* Header */}
         <div className="sticky -top-5 md:-top-6 z-10 -mx-5 md:-mx-6 mb-4 flex items-center justify-between border-b border-border bg-surface px-5 md:px-6 pb-4 pt-1 md:pt-0 select-none">
           <h3 className="text-base font-extrabold text-text-main">

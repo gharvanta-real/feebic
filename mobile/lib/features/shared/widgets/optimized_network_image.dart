@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import 'skeleton_loader.dart';
@@ -23,10 +24,34 @@ class OptimizedNetworkImage extends StatelessWidget {
   final double cacheExtentMultiplier;
   final IconData placeholderIcon;
 
+  static final CacheManager cacheManager = CacheManager(
+    Config(
+      'felbicImageCache',
+      stalePeriod: const Duration(days: 21),
+      maxNrOfCacheObjects: 700,
+    ),
+  );
+
   static int _cacheSize(
       double logicalSize, double devicePixelRatio, double multiplier) {
     final size = logicalSize * devicePixelRatio * multiplier;
     return size.clamp(80, 1600).round();
+  }
+
+  static String _optimizeImageUrl(String url, double width) {
+    if (url.contains('images.unsplash.com')) {
+      try {
+        final uri = Uri.parse(url);
+        final params = Map<String, String>.from(uri.queryParameters);
+        params['w'] = width.round().toString();
+        params['fit'] = 'crop';
+        params['q'] = '80';
+        return uri.replace(queryParameters: params).toString();
+      } catch (_) {
+        return url;
+      }
+    }
+    return url;
   }
 
   @override
@@ -48,8 +73,11 @@ class OptimizedNetworkImage extends StatelessWidget {
                   ? constraints.maxHeight
                   : targetWidth);
 
+          final optimizedUrl = _optimizeImageUrl(imageUrl, targetWidth);
+
           Widget image = CachedNetworkImage(
-            imageUrl: imageUrl,
+            imageUrl: optimizedUrl,
+            cacheManager: cacheManager,
             width: width,
             height: height,
             fit: fit,

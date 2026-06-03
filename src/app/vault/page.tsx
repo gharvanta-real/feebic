@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { MobileHeader } from "@/components/layout/MobileHeader";
 import { useUser } from "@/context/UserContext";
 import { RoleGuard } from "@/components/layout/RoleGuard";
-import { mockDb, VaultItem } from "@/lib/mockDb";
+import type { VaultItem } from "@/lib/mockDb";
 import { apiClient } from "@/lib/apiClient";
+import { uploadToCloudinary, validateVideoFile } from "@/lib/cloudinaryClient";
 
 
 export default function CreatorVaultPage() {
@@ -14,6 +15,8 @@ export default function CreatorVaultPage() {
   const [vaultItems, setVaultItems] = useState<VaultItem[]>([]);
   const [activeTab, setActiveTab] = useState<"all" | "image" | "video" | "unused">("all");
   const [isUploading, setIsUploading] = useState(false);
+  const [viewingItem, setViewingItem] = useState<VaultItem | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const fetchVault = async () => {
     if (user?.role !== "creator") {
@@ -39,6 +42,17 @@ export default function CreatorVaultPage() {
     }
   };
 
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this media asset?")) return;
+    try {
+      await apiClient.delete(`/vault/${id}`);
+      showToast("Media asset deleted successfully");
+      await fetchVault();
+    } catch (err: any) {
+      showToast(err.message || "Failed to delete asset");
+    }
+  };
+
 
   useEffect(() => {
     setTimeout(() => {
@@ -50,40 +64,53 @@ export default function CreatorVaultPage() {
     return () => window.removeEventListener("ch_vault_updated", handleVaultUpdate);
   }, [user?.role]);
 
-  const handleMockUpload = async () => {
+  const formatSize = (bytes: number) => {
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${bytes} B`;
+  };
+
+  const handleUploadFile = async (file?: File) => {
     if (user?.role !== "creator") {
       showToast("Only creators can upload to the media vault");
       return;
     }
+    if (!file) return;
+    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
+      showToast("Upload an image or video file");
+      return;
+    }
+
+    if (file.type.startsWith("video/")) {
+      showToast("Validating video file...");
+      const check = await validateVideoFile(file, {
+        maxDurationSeconds: 600, // 10 minutes
+        maxSizeBytes: 100 * 1024 * 1024, // 100 MB
+      });
+      if (!check.isValid) {
+        showToast(check.error || "Invalid video file");
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+    }
 
     setIsUploading(true);
-    showToast("Opening system file explorer...");
-
-    const presets = [
-      { name: "Backstage outfit teaser.jpg", url: "/assets/0c0bf4c58678d852ea7588ef1045309e.png", type: "image", size: "4.2 MB" },
-      { name: "Promotional loop teaser.mp4", url: "/assets/65c7978e64c060567de19aa63c97dfe7.png", type: "video", size: "24.5 MB" },
-      { name: "Exclusive photoset snapshot.jpg", url: "/assets/33835d122eba2ad097de797e914a7b1b.png", type: "image", size: "3.8 MB" },
-      { name: "Workout motivation clip.mp4", url: "/assets/efcfd91838f89a7a1dcef9eac6ec0b56.png", type: "video", size: "18.1 MB" }
-    ];
-
-    const random = presets[Math.floor(Math.random() * presets.length)];
-
-    setTimeout(async () => {
-      try {
-        await apiClient.post("/vault", {
-          name: random.name,
-          url: random.url,
-          type: random.type,
-          size: random.size
-        });
-        setIsUploading(false);
-        showToast(`Uploaded ${random.name} to Vault!`);
-        await fetchVault();
-      } catch (err: any) {
-        setIsUploading(false);
-        showToast(err.message || "Failed to upload to Vault");
-      }
-    }, 1200);
+    try {
+      const uploaded = await uploadToCloudinary(file, user.username, "vault");
+      await apiClient.post("/vault", {
+        name: file.name,
+        url: uploaded.secure_url,
+        type: uploaded.resource_type === "video" ? "video" : "image",
+        size: formatSize(uploaded.bytes || file.size)
+      });
+      showToast(`Uploaded ${file.name} to Vault`);
+      await fetchVault();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to upload to Vault");
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
 
@@ -120,8 +147,15 @@ export default function CreatorVaultPage() {
                 <p className="text-xs text-text-muted font-medium">Total of {vaultItems.length} secure digital assets stored</p>
               </div>
 
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                className="hidden"
+                onChange={(event) => handleUploadFile(event.target.files?.[0])}
+              />
               <button
-                onClick={handleMockUpload}
+                onClick={() => fileInputRef.current?.click()}
                 disabled={isUploading}
                 className="bg-primary hover:bg-primary-hover text-white active:scale-95 px-5 py-2.5 rounded-full text-xs font-black uppercase tracking-wider shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
@@ -181,7 +215,10 @@ export default function CreatorVaultPage() {
                     className="bg-surface border border-border rounded-2xl overflow-hidden shadow-sm flex flex-col hover:border-primary/40 hover:shadow-md transition-all group"
                   >
                     {/* Media Preview Box */}
-                    <div className="h-32 bg-surface-container relative border-b border-border overflow-hidden">
+                    <div
+                      onClick={() => setViewingItem(item)}
+                      className="h-32 bg-surface-container relative border-b border-border overflow-hidden cursor-pointer"
+                    >
                       {item.type === "video" ? (
                         <div className="relative w-full h-full">
                           <video src={item.url} className="w-full h-full object-cover pointer-events-none" />
@@ -204,7 +241,7 @@ export default function CreatorVaultPage() {
 
                     {/* Metadata Card Footer */}
                     <div className="p-3.5 space-y-2 flex-grow flex flex-col justify-between">
-                      <p className="text-xs font-black text-text-main truncate" title={item.name}>
+                      <p className="text-xs font-black text-text-main truncate cursor-pointer hover:underline" onClick={() => setViewingItem(item)} title={item.name}>
                         {item.name}
                       </p>
                       
@@ -217,6 +254,16 @@ export default function CreatorVaultPage() {
                           <span className={item.usageCount > 0 ? "text-primary" : "text-text-muted"}>
                             Usage: {item.usageCount} times
                           </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(item.id);
+                            }}
+                            className="text-red-500 hover:text-red-600 flex items-center gap-0.5 cursor-pointer uppercase font-bold"
+                          >
+                            <span className="material-symbols-outlined text-[14px]">delete</span>
+                            <span>Delete</span>
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -224,6 +271,38 @@ export default function CreatorVaultPage() {
                 ))
               )}
             </div>
+
+            {/* View Modal */}
+            {viewingItem && (
+              <div className="fixed inset-0 z-[1000] grid place-items-center bg-black/85 p-4 backdrop-blur-[2px] animate-fade-in">
+                <div className="absolute inset-0 cursor-pointer" onClick={() => setViewingItem(null)} />
+                <div className="relative max-w-3xl w-full max-h-[85vh] bg-surface border border-border rounded-2xl overflow-hidden flex flex-col shadow-2xl animate-scale-in">
+                  {/* Header */}
+                  <div className="p-4 border-b border-border flex justify-between items-center bg-surface select-none">
+                    <h3 className="text-sm font-black text-text-main truncate max-w-[80%]">{viewingItem.name}</h3>
+                    <button 
+                      onClick={() => setViewingItem(null)}
+                      className="text-text-muted hover:text-primary transition-colors cursor-pointer flex items-center"
+                    >
+                      <span className="material-symbols-outlined text-[20px]">close</span>
+                    </button>
+                  </div>
+                  {/* Content */}
+                  <div className="flex-grow flex items-center justify-center p-4 bg-black/10 overflow-auto">
+                    {viewingItem.type === "video" ? (
+                      <video src={viewingItem.url} controls autoPlay className="max-w-full max-h-[60vh] rounded-lg shadow-sm" />
+                    ) : (
+                      <img src={viewingItem.url} alt={viewingItem.name} className="max-w-full max-h-[60vh] object-contain rounded-lg shadow-sm" />
+                    )}
+                  </div>
+                  {/* Footer info */}
+                  <div className="p-4 border-t border-border bg-surface text-xs text-text-muted flex justify-between items-center select-none font-bold">
+                    <span>Uploaded: {viewingItem.date}</span>
+                    <span>Size: {viewingItem.size}</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
       </AppShell>
     </RoleGuard>

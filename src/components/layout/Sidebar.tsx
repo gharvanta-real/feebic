@@ -6,16 +6,13 @@ import { usePathname, useRouter } from "next/navigation";
 import { useSidebar } from "@/context/SidebarContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useUser } from "@/context/UserContext";
-import { useClerk } from "@clerk/nextjs";
 import { filterByRole, mainNavLinks, roleLabel } from "@/lib/roleAccess";
 
 export const Sidebar: React.FC = () => {
   const pathname = usePathname();
   const router = useRouter();
   const { isCollapsed, toggleSidebar } = useSidebar();
-  const { theme, toggleTheme } = useTheme();
-  const { user } = useUser();
-  const { signOut } = useClerk();
+  const { user, logout } = useUser();
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   if (!user) return null;
@@ -41,30 +38,22 @@ export const Sidebar: React.FC = () => {
           onClick={toggleSidebar}
           className="flex items-center gap-1.5 cursor-pointer group hover:opacity-90 transition-opacity"
         >
-          {/* Cloud Icon mimicking OnlyFans */}
-          <span className="material-symbols-outlined text-primary text-[28px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-            cloud
-          </span>
+          <img 
+            src="/logo.png" 
+            alt="Felbic logo" 
+            className="h-7 w-7 object-contain shrink-0" 
+          />
           {!isCollapsed && (
-            <span className="text-[23px] font-black text-primary tracking-tighter leading-none font-sans lowercase">
+            <span className="text-[22px] font-normal text-primary tracking-tighter leading-none font-sans lowercase flex items-center gap-1.5">
               felbic
+              <span className="text-border font-normal text-[16px] select-none">|</span>
+              <span className="text-text-muted font-normal text-[14px] tracking-wide select-none">
+                {user.role === "creator" ? "creator" : "visitor"}
+              </span>
             </span>
           )}
         </div>
       </div>
-
-      {!isCollapsed && (
-        <div className={`mb-3 flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-black ${
-          user.role === "creator"
-            ? "border-primary/20 bg-primary/10 text-primary"
-            : "border-border bg-background text-text-muted"
-        }`}>
-          <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-            {user.role === "creator" ? "workspace_premium" : "visibility"}
-          </span>
-          <span>{roleLabel[user.role]} Mode</span>
-        </div>
-      )}
 
       {/* 2. Navigation Menu Links list (Rounded pills style) */}
       <nav className="flex-1 space-y-1 overflow-y-auto pr-0.5 no-scrollbar mt-1">
@@ -111,38 +100,7 @@ export const Sidebar: React.FC = () => {
         })}
       </nav>
 
-      {/* 3. Theme Toggle Row (Directly above profile) */}
-      <div
-        onClick={toggleTheme}
-        className={`flex items-center pt-3 pb-3 select-none cursor-pointer border-t border-border/80 ${
-          isCollapsed ? "justify-center px-0 mt-2" : "justify-between px-3"
-        }`}
-      >
-        {!isCollapsed && (
-          <span className="text-text-muted flex items-center gap-2 text-xs font-extrabold tracking-wide">
-            <span className="material-symbols-outlined text-[20px] text-text-muted leading-none">
-              dark_mode
-            </span>
-            Theme
-          </span>
-        )}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleTheme();
-          }}
-          className={`relative h-5.5 w-10 cursor-pointer rounded-full border border-border transition-colors p-[2px] ${
-            theme === "dark" ? "bg-primary border-primary" : "bg-gray-200"
-          }`}
-        >
-          <div
-            className={`h-4 w-4 rounded-full bg-white shadow-md transition-transform ${
-              theme === "dark" ? "translate-x-4.5" : "translate-x-0"
-            }`}
-          />
-        </button>
-      </div>
+
 
       {/* 4. User Profile Card (100% Screenshot replica) */}
       <div 
@@ -206,9 +164,9 @@ export const Sidebar: React.FC = () => {
           <hr className="border-border/50 my-1" />
           <button 
             onClick={() => { 
-              localStorage.removeItem("ch_token");
               localStorage.removeItem("ch_onboarding_done");
-              signOut({ redirectUrl: "/login" });
+              logout();
+              router.push("/login");
             }}
             className="flex items-center gap-3 px-3.5 py-2.5 text-xs font-bold hover:bg-accent/10 text-accent rounded-xl w-full text-left cursor-pointer"
           >

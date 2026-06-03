@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:injectable/injectable.dart';
-import 'package:feebic_mobile/core/storage/local_database.dart';
+import 'package:felbic_mobile/core/storage/local_database.dart';
 
 @lazySingleton
 class ThemeCubit extends Cubit<ThemeMode> {

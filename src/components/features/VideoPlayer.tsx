@@ -29,6 +29,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showControls, setShowControls] = useState(true);
+  const [gestureHint, setGestureHint] = useState<string | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressActiveRef = useRef(false);
+  const wasPlayingBeforeHoldRef = useRef(false);
+  const hintTimerRef = useRef<number | null>(null);
+  const lastTouchEndRef = useRef(0);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
@@ -51,6 +58,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const timer = window.setTimeout(() => setShowControls(false), 1800);
     return () => window.clearTimeout(timer);
   }, [isPlaying, currentTime, isMuted]);
+
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+      if (hintTimerRef.current) window.clearTimeout(hintTimerRef.current);
+    };
+  }, []);
 
   const play = async () => {
     const video = videoRef.current;
@@ -92,6 +106,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setShowControls(true);
   };
 
+  const showGesture = (label: string) => {
+    setGestureHint(label);
+    setShowControls(true);
+    if (hintTimerRef.current) window.clearTimeout(hintTimerRef.current);
+    hintTimerRef.current = window.setTimeout(() => setGestureHint(null), 650);
+  };
+
   const handleProgressChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const video = videoRef.current;
     if (!video || !duration) return;
@@ -116,7 +137,58 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const handleDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const isLeftHalf = event.clientX - rect.left < rect.width / 2;
-    seekBy(isLeftHalf ? -10 : 10);
+    const seconds = isLeftHalf ? -10 : 10;
+    seekBy(seconds);
+    showGesture(seconds > 0 ? "+10s" : "-10s");
+  };
+
+  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0];
+    if (!touch) return;
+
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+    longPressActiveRef.current = false;
+    wasPlayingBeforeHoldRef.current = Boolean(videoRef.current && !videoRef.current.paused);
+    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = window.setTimeout(() => {
+      const video = videoRef.current;
+      if (!video || video.paused) return;
+      longPressActiveRef.current = true;
+      video.pause();
+      showGesture("Hold pause");
+    }, 450);
+  };
+
+  const handleTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+    const start = touchStartRef.current;
+    const touch = event.changedTouches[0];
+    lastTouchEndRef.current = Date.now();
+    touchStartRef.current = null;
+    if (!start || !touch) return;
+
+    if (longPressActiveRef.current) {
+      longPressActiveRef.current = false;
+      if (wasPlayingBeforeHoldRef.current) {
+        play();
+        showGesture("Resume");
+      }
+      return;
+    }
+
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    const elapsed = Date.now() - start.time;
+    if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy)) {
+      const seconds = dx > 0 ? 10 : -10;
+      seekBy(seconds);
+      showGesture(seconds > 0 ? "+10s" : "-10s");
+      return;
+    }
+
+    if (elapsed < 300 && Math.abs(dx) < 12 && Math.abs(dy) < 12) {
+      togglePlay();
+    }
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -145,6 +217,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       onMouseMove={() => setShowControls(true)}
       onFocus={() => setShowControls(true)}
       onDoubleClick={handleDoubleClick}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
@@ -156,7 +230,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         playsInline
         preload="metadata"
         className={`block h-full max-h-[420px] min-h-[220px] w-full bg-black ${fit === "cover" ? "object-cover" : "object-contain"}`}
-        onClick={togglePlay}
+        onClick={(event) => {
+          if (Date.now() - lastTouchEndRef.current < 500) return;
+          if (event.detail === 1) togglePlay();
+        }}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
         onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
@@ -167,10 +244,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }}
       />
 
+      {gestureHint && (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/70 px-4 py-2 text-sm font-black text-white shadow-lg ring-1 ring-white/15">
+          {gestureHint}
+        </div>
+      )}
+
       <button
         type="button"
         onClick={toggleMute}
-        className="absolute right-3 top-3 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/55 text-white backdrop-blur transition hover:bg-black/75"
+        className="absolute right-3 top-3 z-30 grid h-9 w-9 place-items-center rounded-full bg-black/70 text-white shadow-lg ring-1 ring-white/15 backdrop-blur transition hover:bg-black/85"
         title={isMuted ? "Unmute" : "Mute"}
         aria-label={isMuted ? "Unmute video" : "Mute video"}
       >

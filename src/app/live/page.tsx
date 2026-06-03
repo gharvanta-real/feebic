@@ -1,466 +1,401 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { MobileHeader } from "@/components/layout/MobileHeader";
-import { useUser } from "@/context/UserContext";
 import { RoleGuard } from "@/components/layout/RoleGuard";
 import { PaymentModal } from "@/components/ui/PaymentModal";
-import { mockDb } from "@/lib/mockDb";
+import { useUser } from "@/context/UserContext";
 import { apiClient } from "@/lib/apiClient";
+
+interface LiveStream {
+  id: string;
+  title: string;
+  goal_title: string;
+  goal_target: number;
+  goal_current: number;
+  viewer_count: number;
+  heart_count: number;
+  status: "live" | "ended";
+  creator_username: string;
+  creator_name: string;
+  creator_avatar: string;
+}
 
 interface LiveComment {
   id: string;
   name: string;
   avatar: string;
   text: string;
-  isTip?: boolean;
+  is_tip?: boolean;
   amount?: number;
 }
+
+type LiveResponse = {
+  stream: LiveStream | null;
+  comments: Array<LiveComment & { is_tip?: boolean }>;
+};
 
 export default function LiveStreamingPage() {
   const { user, showToast, adjustBalance } = useUser();
   const isCreatorMode = user?.role === "creator";
-  
-  // Live Chat States
-  const [liveComments, setLiveComments] = useState<LiveComment[]>([]);
-  const [inputVal, setInputVal] = useState("");
-  const [viewerCount, setViewerCount] = useState(1280);
-
-  // Stream Funding Goal States (Interactive details)
-  const [goalTitle, setGoalTitle] = useState("Lingerie Cosplay Reveal");
-  const [goalCurrent, setGoalCurrent] = useState(260);
-  const [goalTarget] = useState(500);
-
-  // Floating heart reaction counter
-  const [heartCount, setHeartCount] = useState(148);
-
-  // Tipping states
-  const [isPaymentOpen, setIsPaymentOpen] = useState(false);
-  const [paymentTitle, setPaymentTitle] = useState("");
-  const [paymentPrice, setPaymentPrice] = useState(0);
-  const [showTipPanel, setShowTipPanel] = useState(false);
-  const [customTipAmount, setCustomTipAmount] = useState("25");
-
-  // Camera & Mic stream states for broadcasting creator
-  const [isMuted, setIsMuted] = useState(false);
-  const [isCamOff, setIsCamOff] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const fetchDefaultLiveChats = () => {
-    const list: LiveComment[] = [
-      { id: "lc_1", name: "Demi Rose", avatar: "/assets/0c0bf4c58678d852ea7588ef1045309e.png", text: "Crushing it! So happy to join today! 🔥💕" },
-      { id: "lc_2", name: "Lana Rhoades", avatar: "/assets/00dcbdc82244f0ba0d9f0e475c7e7780.png", text: "Incredible broadcast setup! 😻" },
-      { id: "lc_3", name: "Austin Wolf", avatar: "/assets/5dc72593d711173af1fe7ab74be0fa56.png", text: "Gym tips split details were awesome. Let's lift! 💪" }
-    ];
-    setLiveComments(list);
+  const [stream, setStream] = useState<LiveStream | null>(null);
+  const [comments, setComments] = useState<LiveComment[]>([]);
+  const [message, setMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isStarting, setIsStarting] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isCamOff, setIsCamOff] = useState(false);
+  const [showTipPanel, setShowTipPanel] = useState(false);
+  const [customTipAmount, setCustomTipAmount] = useState("25");
+  const [paymentPrice, setPaymentPrice] = useState(0);
+  const [isPaymentOpen, setIsPaymentOpen] = useState(false);
+
+  const loadActiveStream = async (silent = false) => {
+    try {
+      const data = await apiClient.get<LiveResponse>("/live/active");
+      setStream(data.stream);
+      setComments((data.comments || []).map((item) => ({
+        ...item,
+        is_tip: item.is_tip,
+      })));
+      if (!silent) setIsLoading(false);
+    } catch (err) {
+      if (!silent) {
+        setIsLoading(false);
+        showToast(err instanceof Error ? err.message : "Unable to load live stream");
+      }
+    }
   };
 
   useEffect(() => {
-    setTimeout(() => {
-      fetchDefaultLiveChats();
-    }, 0);
-
-    // Scroll chat bottom initially
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 200);
-
-    // Simulate real-time viewer variations
-    const interval = setInterval(() => {
-      setViewerCount((prev) => prev + Math.floor(Math.random() * 9 - 4));
-    }, 4000);
-
-    // Simulate incoming background chat items
-    const chatPresets = [
-      { name: "Demi Rose", avatar: "/assets/0c0bf4c58678d852ea7588ef1045309e.png", text: "Love this stream! ❤️" },
-      { name: "Sarah J.", avatar: "/assets/39bc5c3eed51d62c1022c60686bb459a.png", text: "Unbelievable sets! 🌌" },
-      { name: "John Smith", avatar: "/assets/5dc72593d711173af1fe7ab74be0fa56.png", text: "Can you review custom setups next?" }
-    ];
-
-    const chatInterval = setInterval(() => {
-      const random = chatPresets[Math.floor(Math.random() * chatPresets.length)];
-      const newComment: LiveComment = {
-        id: "lc_" + Date.now(),
-        ...random
-      };
-      setLiveComments((prev) => [...prev, newComment]);
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
-    }, 6000);
-
-    return () => {
-      clearInterval(interval);
-      clearInterval(chatInterval);
-    };
+    loadActiveStream();
+    const poll = window.setInterval(() => loadActiveStream(true), 5000);
+    return () => window.clearInterval(poll);
   }, []);
 
   useEffect(() => {
-    if (isCreatorMode) {
-      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-        .then((stream) => {
-          localStreamRef.current = stream;
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-          }
-          showToast("Broadcasting webcam stream loaded!");
-        })
-        .catch((err) => {
-          console.warn("Live camera/mic access rejected:", err);
-          showToast("Failed to access camera/mic. Using backup stream.");
-        });
-    }
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [comments.length]);
+
+  useEffect(() => {
+    if (!isCreatorMode || !stream) return;
+
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      .then((mediaStream) => {
+        localStreamRef.current = mediaStream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = mediaStream;
+        }
+      })
+      .catch(() => showToast("Camera/mic permission is required to broadcast."));
 
     return () => {
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => track.stop());
-        localStreamRef.current = null;
-      }
+      localStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
     };
-  }, [isCreatorMode]);
+  }, [isCreatorMode, stream?.id]);
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const startStream = async () => {
+    if (isStarting) return;
+    setIsStarting(true);
+    try {
+      const data = await apiClient.post<LiveResponse>("/live/start", {
+        title: `${user?.displayName || "Creator"} Live Broadcast`,
+        goal_title: "Live Support Goal",
+        goal_target: 500,
+      });
+      setStream(data.stream);
+      setComments(data.comments || []);
+      showToast("Live stream started.");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Unable to start live stream");
+    } finally {
+      setIsStarting(false);
+    }
+  };
+
+  const endStream = async () => {
+    if (!stream || !confirm("End your live broadcast?")) return;
+    try {
+      await apiClient.post(`/live/${stream.id}/end`);
+      setStream(null);
+      setComments([]);
+      showToast("Live stream ended.");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Unable to end live stream");
+    }
+  };
+
+  const sendComment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputVal.trim() || !user) return;
+    if (!stream || !message.trim()) return;
+    try {
+      const data = await apiClient.post<{ comments: LiveComment[] }>(`/live/${stream.id}/comments`, {
+        text: message.trim(),
+      });
+      setComments(data.comments || []);
+      setMessage("");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Unable to send live comment");
+    }
+  };
 
-    const newComment: LiveComment = {
-      id: "lc_" + Date.now(),
-      name: user.displayName,
-      avatar: user.avatar,
-      text: inputVal.trim()
-    };
-
-    setLiveComments([...liveComments, newComment]);
-    setInputVal("");
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+  const sendReaction = async () => {
+    if (!stream) return;
+    try {
+      const data = await apiClient.post<{ heart_count: number }>(`/live/${stream.id}/reactions`);
+      setStream({ ...stream, heart_count: data.heart_count });
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Unable to send reaction");
+    }
   };
 
   const triggerTip = (amount?: number) => {
-    const finalAmount = (amount ?? parseFloat(customTipAmount)) || 25;
-    setPaymentTitle("Send Tip in Live Broadcast");
+    const finalAmount = amount ?? Number(customTipAmount);
+    if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+      showToast("Enter a valid tip amount");
+      return;
+    }
     setPaymentPrice(finalAmount);
     setIsPaymentOpen(true);
     setShowTipPanel(false);
   };
 
   const handlePaymentConfirm = async (tipMsg?: string, paymentSource: "wallet" | "card" = "wallet") => {
-    if (!user) return;
-    const msg = tipMsg || "Contributed to stream!";
-    
+    if (!stream) return;
+    const cleanMessage = tipMsg?.trim() || "Live support tip";
+
     if (paymentSource === "card") {
-      try {
-        await apiClient.post("/wallet/deposit", { amount: paymentPrice });
-      } catch (err: any) {
-        showToast(err.message || "Card deposit failed");
-        return;
-      }
+      await apiClient.post("/wallet/deposit", { amount: paymentPrice });
     }
 
-    await adjustBalance(-paymentPrice, msg, "demirose");
-
-    const newComment: LiveComment = {
-      id: "lc_tip_" + Date.now(),
-      name: user.displayName,
-      avatar: user.avatar,
-      text: `[Contributed Payout Tip ₹${paymentPrice.toFixed(2)}] ${msg}`,
-      isTip: true,
-      amount: paymentPrice
-    };
-
-    setLiveComments([...liveComments, newComment]);
-    setGoalCurrent((prev) => Math.min(goalTarget, prev + paymentPrice));
-    showToast(`Successfully tipped ₹${paymentPrice.toFixed(2)} to live stream!`);
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+    await adjustBalance(-paymentPrice, cleanMessage, stream.creator_username);
+    const data = await apiClient.post<{ comments: LiveComment[] }>(`/live/${stream.id}/comments`, {
+      text: cleanMessage,
+      is_tip: true,
+      amount: paymentPrice,
+    });
+    setComments(data.comments || []);
+    await loadActiveStream(true);
   };
 
-  const getTipColorClass = (amount: number) => {
-    if (amount >= 100) return "bg-purple-500/10 border border-purple-500/20 text-purple-500";
-    if (amount >= 50) return "bg-amber-500/10 border border-amber-500/20 text-amber-500";
-    return "bg-success/10 border border-[hsl(var(--success-hsl)/0.15)] text-success";
-  };
-
-  const goalPercentage = Math.round((goalCurrent / goalTarget) * 100);
+  const goalTarget = stream?.goal_target || 0;
+  const goalCurrent = stream?.goal_current || 0;
+  const goalPercentage = goalTarget > 0 ? Math.min(100, Math.round((goalCurrent / goalTarget) * 100)) : 0;
 
   return (
     <RoleGuard allowedRoles={["creator", "fan"]}>
       <AppShell>
-        {/* Mobile Header */}
         <MobileHeader>
           <span className="text-sm font-bold text-text-muted select-none">
-            {isCreatorMode ? "Broadcasting Studio" : "Watching Live"}
+            {isCreatorMode ? "Live Studio" : "Live"}
           </span>
         </MobileHeader>
 
-        {/* Main Content (Touching Sidebar) */}
-        <div className="app-page-wide max-md:h-[calc(100vh-120px)] overflow-hidden flex flex-col justify-between">
-            
-            {/* Live Streaming Video Player Frame */}
-            <div className="relative aspect-[16/10] w-full bg-black shrink-0 border-b border-border select-none">
-              
-              {/* Badges Info */}
-              <div className="absolute top-4 left-4 z-10 flex gap-2">
-                <span className="bg-red-600 text-white text-[9px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 animate-pulse">
-                  <span className="h-1.5 w-1.5 bg-white rounded-full"></span>
-                  <span>Live</span>
+        <div className="app-page-wide max-md:h-[calc(100vh-120px)] overflow-hidden flex flex-col">
+          {isLoading ? (
+            <div className="flex min-h-[70vh] items-center justify-center text-sm font-bold text-text-muted">
+              Loading live stream...
+            </div>
+          ) : !stream ? (
+            <div className="flex min-h-[70vh] flex-col items-center justify-center gap-4 text-center">
+              <span className="material-symbols-outlined text-[46px] text-primary">live_tv</span>
+              <div className="space-y-1">
+                <h1 className="text-lg font-black text-text-main">No one is live right now</h1>
+                <p className="text-xs font-medium text-text-muted">
+                  {isCreatorMode ? "Start a broadcast when you are ready." : "Check back when a creator starts streaming."}
+                </p>
+              </div>
+              {isCreatorMode && (
+                <button
+                  onClick={startStream}
+                  disabled={isStarting}
+                  className="rounded-full bg-primary px-5 py-2.5 text-xs font-black text-white disabled:opacity-60"
+                >
+                  {isStarting ? "Starting..." : "Start Live"}
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="relative aspect-[16/10] w-full shrink-0 overflow-hidden bg-black border-b border-border">
+                <div className="absolute left-4 top-4 z-10 flex flex-wrap gap-2">
+                  <span className="rounded-full bg-red-600 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-white">
+                    Live
+                  </span>
+                  <span className="rounded-full bg-black/65 px-2 py-0.5 text-[9px] font-bold text-white backdrop-blur">
+                    {stream.viewer_count} viewers
+                  </span>
+                  {isCreatorMode && stream.creator_username === user?.username && (
+                    <button
+                      onClick={endStream}
+                      className="rounded-full bg-red-500 px-3 py-0.5 text-[9px] font-black uppercase tracking-wider text-white"
+                    >
+                      End Stream
+                    </button>
+                  )}
+                </div>
+
+                <div className="absolute right-4 top-4 z-10 w-[210px] rounded-2xl border border-white/10 bg-black/65 p-3 text-white backdrop-blur">
+                  <div className="mb-1.5 flex justify-between gap-2 text-[9px] font-black uppercase tracking-wider">
+                    <span className="truncate">{stream.goal_title}</span>
+                    <span className="text-primary">{goalPercentage}%</span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-white/20">
+                    <div className="h-full rounded-full bg-primary" style={{ width: `${goalPercentage}%` }} />
+                  </div>
+                  <div className="mt-1.5 flex justify-between text-[9px] font-bold text-white/70">
+                    <span>Rs {goalCurrent.toFixed(2)}</span>
+                    <span>Goal Rs {goalTarget.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={sendReaction}
+                  className="absolute bottom-16 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-primary/30 bg-primary/20 text-primary backdrop-blur"
+                  title="Send reaction"
+                >
+                  <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>
+                    favorite
+                  </span>
+                </button>
+                <span className="absolute bottom-8 right-4 z-10 rounded-full bg-black/55 px-2 py-0.5 text-[9px] font-bold text-white">
+                  {stream.heart_count}
                 </span>
-                <span className="bg-black/60 text-white text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5 backdrop-blur-sm">
-                  <span className="material-symbols-outlined text-[11px]">visibility</span>
-                  <span>{viewerCount} viewers</span>
-                </span>
-                {isCreatorMode && (
-                  <button
-                    onClick={() => {
-                      if (confirm("End your live broadcast?")) {
-                        showToast("Live broadcast completed. Saving stream archive...");
-                        setTimeout(() => {
-                          window.location.href = "/studio";
-                        }, 1000);
-                      }
-                    }}
-                    className="bg-red-500 hover:bg-red-600 active:scale-95 text-white text-[9px] font-black px-3 py-0.5 rounded-full uppercase tracking-wider transition-all cursor-pointer shadow-md select-none"
-                  >
-                    End Stream
-                  </button>
+
+                {isCreatorMode && stream.creator_username === user?.username ? (
+                  <div className="h-full w-full bg-neutral-950">
+                    {isCamOff ? (
+                      <div className="flex h-full flex-col items-center justify-center text-xs font-bold text-white/55">
+                        <span className="material-symbols-outlined mb-2 text-[36px]">videocam_off</span>
+                        Camera paused
+                      </div>
+                    ) : (
+                      <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+                    )}
+                    <div className="absolute bottom-5 left-4 z-10 flex gap-2">
+                      <button
+                        onClick={() => {
+                          localStreamRef.current?.getAudioTracks().forEach((track) => { track.enabled = isMuted; });
+                          setIsMuted(!isMuted);
+                        }}
+                        className="flex h-9 w-9 items-center justify-center rounded-full bg-black/65 text-white"
+                        title={isMuted ? "Unmute" : "Mute"}
+                      >
+                        <span className="material-symbols-outlined text-[18px]">{isMuted ? "mic_off" : "mic"}</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          localStreamRef.current?.getVideoTracks().forEach((track) => { track.enabled = isCamOff; });
+                          setIsCamOff(!isCamOff);
+                        }}
+                        className="flex h-9 w-9 items-center justify-center rounded-full bg-black/65 text-white"
+                        title={isCamOff ? "Camera on" : "Camera off"}
+                      >
+                        <span className="material-symbols-outlined text-[18px]">{isCamOff ? "videocam_off" : "videocam"}</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center bg-neutral-950">
+                    <div className="flex flex-col items-center gap-3 text-center text-white">
+                      <img src={stream.creator_avatar} alt={stream.creator_name} className="h-20 w-20 rounded-full border border-white/20 object-cover" />
+                      <div>
+                        <p className="text-base font-black">{stream.title}</p>
+                        <p className="text-xs font-medium text-white/70">@{stream.creator_username}</p>
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
 
-              {/* Goal widget overlays inside broadcast */}
-              <div className="absolute top-4 right-4 z-10 w-[200px] bg-black/60 backdrop-blur-md border border-white/10 rounded-2xl p-2.5 text-white space-y-1.5">
-                <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-wider">
-                  <span className="truncate max-w-[120px]">{goalTitle}</span>
-                  <span className="text-primary font-bold">{goalPercentage}%</span>
-                </div>
-                <div className="w-full bg-white/20 h-1.5 rounded-full overflow-hidden">
-                  <div 
-                    className="bg-primary h-full rounded-full transition-all duration-500" 
-                    style={{ width: `${goalPercentage}%` }}
-                  />
-                </div>
-                <div className="flex justify-between items-center text-[9px] font-bold text-white/70">
-                  <span>₹{goalCurrent} raised</span>
-                  <span>Goal: ₹{goalTarget}</span>
-                </div>
-              </div>
-
-              {/* Heart floating emoji trigger clicker */}
-              <div className="absolute bottom-16 right-4 z-10 flex flex-col items-center select-none space-y-1">
-                <button
-                  onClick={() => setHeartCount(prev => prev + 1)}
-                  className="h-10 w-10 bg-primary/20 backdrop-blur hover:bg-primary/30 text-primary active:scale-90 rounded-full flex items-center justify-center cursor-pointer transition-all border border-primary/30"
-                  title="Send Heart Reaction"
-                >
-                  <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>favorite</span>
-                </button>
-                <span className="text-[9px] text-white bg-black/40 px-2 py-0.5 rounded-full font-bold">
-                  {heartCount}
-                </span>
-              </div>
-
-              {/* Creator Broadcast Controls Overlay */}
-              {isCreatorMode && (
-                <div className="absolute bottom-16 left-4 z-10 flex gap-2">
-                  <button
-                    onClick={() => {
-                      if (localStreamRef.current) {
-                        localStreamRef.current.getAudioTracks().forEach(track => {
-                          track.enabled = !track.enabled;
-                        });
-                        setIsMuted(!isMuted);
-                        showToast(!isMuted ? "Microphone muted" : "Microphone unmuted");
-                      }
-                    }}
-                    className={`h-9 w-9 rounded-full flex items-center justify-center cursor-pointer transition-all border shadow-md ${
-                      isMuted
-                        ? "bg-red-600 border-red-600 text-white animate-pulse"
-                        : "bg-black/60 border-white/10 text-white hover:bg-black/80"
-                    }`}
-                    title={isMuted ? "Unmute Mic" : "Mute Mic"}
-                  >
-                    <span className="material-symbols-outlined text-[18px]">
-                      {isMuted ? "mic_off" : "mic"}
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (localStreamRef.current) {
-                        localStreamRef.current.getVideoTracks().forEach(track => {
-                          track.enabled = !track.enabled;
-                        });
-                        setIsCamOff(!isCamOff);
-                        showToast(!isCamOff ? "Camera feed paused" : "Camera feed resumed");
-                      }
-                    }}
-                    className={`h-9 w-9 rounded-full flex items-center justify-center cursor-pointer transition-all border shadow-md ${
-                      isCamOff
-                        ? "bg-red-600 border-red-600 text-white animate-pulse"
-                        : "bg-black/60 border-white/10 text-white hover:bg-black/80"
-                    }`}
-                    title={isCamOff ? "Turn Camera On" : "Turn Camera Off"}
-                  >
-                    <span className="material-symbols-outlined text-[18px]">
-                      {isCamOff ? "videocam_off" : "videocam"}
-                    </span>
-                  </button>
-                </div>
-              )}
-
-              {/* Broadcast Media Simulation Overlay */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20 flex flex-col justify-between p-4 pointer-events-none">
-                <div />
-                
-                {/* Creator Title Details */}
-                <div className="flex justify-between items-end text-white">
-                  <div>
-                    <p className="text-xs font-bold leading-none mb-1">
-                      {isCreatorMode ? "Broadcasting Live: Q&A Session" : "Watching Demi Rose's Broadcast"}
-                    </p>
-                    <p className="text-[10px] text-white/80">
-                      {isCreatorMode ? "Streaming from your Office Studio" : "Weekly Live Payout Broadcast Q&A"}
-                    </p>
-                  </div>
-                  <span className="material-symbols-outlined text-white/50 text-[32px]">cast</span>
-                </div>
-              </div>
-
-              {/* Actual local video stream or fallback blurred background */}
-              {isCreatorMode ? (
-                <div className="w-full h-full relative bg-neutral-950">
-                  {isCamOff ? (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-xs font-bold text-white/50 bg-neutral-950">
-                      <span className="material-symbols-outlined text-[36px] mb-2">videocam_off</span>
-                      <span>Camera Feed Paused</span>
-                    </div>
-                  ) : (
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      muted
-                      playsInline
-                      className="w-full h-full object-cover"
-                    />
-                  )}
-                </div>
-              ) : (
-                /* Blurred background image mock */
-                <div
-                  className="w-full h-full opacity-30"
-                  style={{
-                    backgroundImage: "url('/assets/cb15617a79d7713ffa4a6de36f808a76.png')",
-                    backgroundSize: "cover",
-                    backgroundPosition: "center"
-                  }}
-                />
-              )}
-            </div>
-
-            {/* Live Chat Viewport */}
-            <div className="flex-grow overflow-y-auto no-scrollbar p-4 space-y-3 bg-[hsl(var(--background-hsl)/0.3)]">
-              {liveComments.map((comment) => {
-                const isTipCard = comment.isTip;
-                const tipColor = comment.amount ? getTipColorClass(comment.amount) : "";
-                
-                return (
-                  <div key={comment.id} className="flex gap-2.5 text-xs items-start animate-fade-in select-none">
-                    <img
-                      src={comment.avatar}
-                      alt={comment.name}
-                      className="h-8 w-8 rounded-full object-cover border border-border"
-                    />
-                    <div className={`p-3 rounded-2xl flex-grow min-w-0 font-medium ${
-                      isTipCard 
-                        ? tipColor
-                        : "bg-surface border border-border text-text-main"
+              <div className="flex-grow overflow-y-auto bg-[hsl(var(--background-hsl)/0.3)] p-4 space-y-3">
+                {comments.length === 0 ? (
+                  <p className="py-8 text-center text-xs font-bold text-text-muted">No live comments yet.</p>
+                ) : comments.map((comment) => (
+                  <div key={comment.id} className="flex items-start gap-2.5 text-xs">
+                    <img src={comment.avatar} alt={comment.name} className="h-8 w-8 rounded-full border border-border object-cover" />
+                    <div className={`min-w-0 flex-grow rounded-2xl border p-3 ${
+                      comment.is_tip ? "border-success/25 bg-success/10 text-success" : "border-border bg-surface text-text-main"
                     }`}>
-                      <div className="flex justify-between items-center mb-0.5">
-                        <p className={`font-bold ${isTipCard ? "font-black" : "text-text-main"}`}>
-                          {comment.name}
-                        </p>
-                        {isTipCard && (
-                          <span className="bg-primary text-white text-[8px] font-extrabold px-2.5 py-0.5 rounded-full select-none uppercase tracking-wider ml-2">
-                            Tipped ₹{comment.amount?.toFixed(2)}
-                          </span>
-                        )}
+                      <div className="mb-0.5 flex justify-between gap-2">
+                        <p className="font-bold">{comment.name}</p>
+                        {comment.is_tip && <span className="text-[9px] font-black">Tipped Rs {comment.amount?.toFixed(2)}</span>}
                       </div>
-                      <p className="text-[11px] leading-relaxed break-words">{comment.text}</p>
+                      <p className="break-words text-[11px] leading-relaxed">{comment.text}</p>
                     </div>
                   </div>
-                );
-              })}
-              <div ref={chatEndRef} />
-            </div>
+                ))}
+                <div ref={chatEndRef} />
+              </div>
 
-            {/* Chat Input Controls */}
-            <div className="p-3 border-t border-border bg-surface shrink-0">
-              <form onSubmit={handleSendMessage} className="flex gap-2">
-                {!isCreatorMode && (
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setShowTipPanel(!showTipPanel)}
-                      className="bg-success/15 text-success hover:bg-success hover:text-white px-4 py-2.5 rounded-full text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer shrink-0 active:scale-95"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">payments</span>
-                      <span>Tip</span>
-                    </button>
-                    {showTipPanel && (
-                      <div className="absolute bottom-full mb-2 left-0 w-52 bg-surface border border-border rounded-2xl p-3 z-40 space-y-2 animate-fade-in">
-                        <p className="text-[10px] font-black text-text-muted uppercase tracking-wider">Send a Tip</p>
-                        <div className="grid grid-cols-4 gap-1.5">
-                          {[5, 10, 25, 50].map(amt => (
-                            <button key={amt} onClick={() => triggerTip(amt)}
-                              className="py-1.5 border border-border rounded-lg text-[10px] font-black text-text-main hover:border-success hover:text-success transition-colors cursor-pointer">
-                              ₹{amt}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="flex gap-1.5">
-                          <div className="flex-grow flex items-center bg-background border border-border rounded-lg px-2 py-1 focus-within:border-success">
-                            <span className="text-[10px] font-bold text-text-muted mr-0.5">₹</span>
+              <div className="shrink-0 border-t border-border bg-surface p-3">
+                <form onSubmit={sendComment} className="flex gap-2">
+                  {!isCreatorMode && (
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowTipPanel(!showTipPanel)}
+                        className="flex items-center gap-1 rounded-full bg-success/15 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-success"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">payments</span>
+                        Tip
+                      </button>
+                      {showTipPanel && (
+                        <div className="absolute bottom-full left-0 z-40 mb-2 w-52 space-y-2 rounded-2xl border border-border bg-surface p-3">
+                          <p className="text-[10px] font-black uppercase tracking-wider text-text-muted">Send a tip</p>
+                          <div className="grid grid-cols-4 gap-1.5">
+                            {[5, 10, 25, 50].map((amt) => (
+                              <button key={amt} type="button" onClick={() => triggerTip(amt)} className="rounded-lg border border-border py-1.5 text-[10px] font-black">
+                                Rs {amt}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="flex gap-1.5">
                             <input
                               type="number"
                               min="1"
                               value={customTipAmount}
                               onChange={(e) => setCustomTipAmount(e.target.value)}
-                              className="w-full text-[10px] bg-transparent outline-none text-text-main font-bold"
-                              placeholder="Custom"
+                              className="min-w-0 flex-grow rounded-lg border border-border bg-background px-2 py-1 text-[10px] font-bold outline-none"
                             />
+                            <button type="button" onClick={() => triggerTip()} className="rounded-lg bg-success px-2 text-[10px] font-black text-white">
+                              Send
+                            </button>
                           </div>
-                          <button
-                            onClick={() => triggerTip()}
-                            className="bg-success text-white text-[10px] font-black px-2 rounded-lg cursor-pointer hover:opacity-90"
-                          >
-                            Send
-                          </button>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <input
-                  type="text"
-                  placeholder="Interact with audience during stream..."
-                  value={inputVal}
-                  onChange={(e) => setInputVal(e.target.value)}
-                  className="flex-grow px-4 py-2.5 bg-background border border-border rounded-full text-xs outline-none focus:border-primary transition-all text-text-main placeholder-text-muted"
-                />
-                
-                <button
-                  type="submit"
-                  disabled={!inputVal.trim()}
-                  className="bg-primary text-white disabled:opacity-50 hover:bg-primary-hover active:scale-95 text-xs font-bold h-10 w-10 flex items-center justify-center rounded-full transition-all cursor-pointer shrink-0 shadow-sm"
-                >
-                  <span className="material-symbols-outlined text-[20px] font-bold">send</span>
-                </button>
-              </form>
-            </div>
+                      )}
+                    </div>
+                  )}
+                  <input
+                    type="text"
+                    placeholder="Write a live comment..."
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    className="flex-grow rounded-full border border-border bg-background px-4 py-2.5 text-xs outline-none focus:border-primary"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!message.trim()}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-white disabled:opacity-50"
+                  >
+                    <span className="material-symbols-outlined text-[20px]">send</span>
+                  </button>
+                </form>
+              </div>
+            </>
+          )}
         </div>
 
-        {/* Payout Tip Secure checkout popup */}
         <PaymentModal
           isOpen={isPaymentOpen}
           onClose={() => setIsPaymentOpen(false)}
-          title={paymentTitle}
+          title="Send Tip in Live Broadcast"
           price={paymentPrice}
           onConfirm={handlePaymentConfirm}
         />

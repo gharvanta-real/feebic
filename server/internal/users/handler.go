@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
 
+	"server/internal/config"
 	"server/internal/database"
 )
 
@@ -24,6 +27,8 @@ type UpdateProfileRequest struct {
 	Website     string  `json:"website"`
 	SubPrice    float64 `json:"sub_price"`
 	Role        string  `json:"role"`
+	Phone       string  `json:"phone"`
+	Country     string  `json:"country"`
 }
 
 // 1. Get current logged-in user's profile
@@ -33,7 +38,7 @@ func GetProfile(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	var email, role, username, displayName, bio, avatar, cover, location, website string
+	var email, role, username, displayName, bio, avatar, cover, location, website, phone, country string
 	var subPrice float64
 	var kycVerified, kycUploaded, twoFactor, biometric bool
 	var kycName, kycDocumentType string
@@ -47,6 +52,7 @@ func GetProfile(c *fiber.Ctx) error {
 		        COALESCE(p.kyc_verified, false), COALESCE(p.kyc_uploaded, false), COALESCE(p.kyc_name, ''),
 		        COALESCE(p.kyc_document_type, ''), COALESCE(p.two_factor, false), COALESCE(p.biometric, true),
 		        COALESCE(p.discount_active, false), COALESCE(p.discount_percent, 0),
+		        COALESCE(p.phone, ''), COALESCE(p.country, ''),
 		        COALESCE(p.calls_enabled, false), COALESCE(p.call_rate, 0.00)
 		 FROM users u
 		 LEFT JOIN profiles p ON u.id = p.user_id
@@ -54,7 +60,7 @@ func GetProfile(c *fiber.Ctx) error {
 		userID,
 	).Scan(&email, &role, &username, &displayName, &bio, &avatar, &cover, &location, &website, &subPrice,
 		&kycVerified, &kycUploaded, &kycName, &kycDocumentType, &twoFactor, &biometric,
-		&discountActive, &discountPercent, &callsEnabled, &callRate)
+		&discountActive, &discountPercent, &phone, &country, &callsEnabled, &callRate)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -64,27 +70,29 @@ func GetProfile(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"id":                 userID,
-		"email":              email,
-		"role":               role,
-		"username":           username,
-		"display_name":       displayName,
-		"bio":                bio,
-		"avatar":             avatar,
-		"cover_photo":        cover,
-		"location":           location,
-		"website":            website,
-		"sub_price":          subPrice,
-		"kyc_verified":       kycVerified,
-		"kyc_uploaded":       kycUploaded,
-		"kyc_name":           kycName,
-		"kyc_document_type":  kycDocumentType,
-		"two_factor":         twoFactor,
-		"biometric":          biometric,
-		"discount_active":    discountActive,
-		"discount_percent":   discountPercent,
-		"calls_enabled":      callsEnabled,
-		"call_rate":          callRate,
+		"id":                userID,
+		"email":             email,
+		"role":              role,
+		"username":          username,
+		"display_name":      displayName,
+		"bio":               bio,
+		"avatar":            avatar,
+		"cover_photo":       cover,
+		"location":          location,
+		"website":           website,
+		"phone":             phone,
+		"country":           country,
+		"sub_price":         subPrice,
+		"kyc_verified":      kycVerified,
+		"kyc_uploaded":      kycUploaded,
+		"kyc_name":          kycName,
+		"kyc_document_type": kycDocumentType,
+		"two_factor":        twoFactor,
+		"biometric":         biometric,
+		"discount_active":   discountActive,
+		"discount_percent":  discountPercent,
+		"calls_enabled":     callsEnabled,
+		"call_rate":         callRate,
 	})
 }
 
@@ -117,31 +125,55 @@ func UpdateProfile(c *fiber.Ctx) error {
 		}
 	}
 
-	// Perform database profile row update
 	_, err = tx.Exec(ctx,
 		`UPDATE profiles 
-		 SET username = $1, display_name = $2, bio = $3, avatar = $4, cover_photo = $5, location = $6, website = $7,
-		     sub_price = CASE WHEN $8 > 0 THEN $8 ELSE sub_price END
-		 WHERE user_id = $9`,
-		req.Username, req.DisplayName, req.Bio, req.Avatar, req.CoverPhoto, req.Location, req.Website, req.SubPrice, userID,
+		 SET username = COALESCE(NULLIF($1, ''), username),
+		     display_name = COALESCE(NULLIF($2, ''), display_name),
+		     bio = COALESCE($3, bio),
+		     avatar = COALESCE(NULLIF($4, ''), avatar),
+		     cover_photo = COALESCE(NULLIF($5, ''), cover_photo),
+		     location = COALESCE($6, location),
+		     website = COALESCE($7, website),
+		     sub_price = CASE WHEN $8 > 0 THEN $8 ELSE sub_price END,
+		     phone = COALESCE($9, phone),
+		     country = COALESCE($10, country)
+		 WHERE user_id = $11`,
+		req.Username, req.DisplayName, req.Bio, req.Avatar, req.CoverPhoto, req.Location, req.Website, req.SubPrice, req.Phone, req.Country, userID,
 	)
 
 	if err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update profile settings"})
 	}
 
+	nextRole, _ := c.Locals("userRole").(string)
 	if req.Role != "" {
 		_, err = tx.Exec(ctx, `UPDATE users SET role = $1 WHERE id = $2`, req.Role, userID)
 		if err != nil {
 			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update account mode"})
 		}
+		nextRole = req.Role
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to save profile update"})
 	}
 
-	return c.JSON(fiber.Map{"message": "Profile updated successfully"})
+	response := fiber.Map{"message": "Profile updated successfully"}
+	if req.Role != "" {
+		cfg := config.Load()
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"user_id": userID,
+			"role":    nextRole,
+			"exp":     time.Now().Add(72 * time.Hour).Unix(),
+		})
+		signedToken, err := token.SignedString([]byte(cfg.JWTSecret))
+		if err != nil {
+			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to refresh authorization token"})
+		}
+		response["token"] = signedToken
+	}
+
+	return c.JSON(response)
 }
 
 // 3. List all creators
@@ -154,7 +186,7 @@ func ListCreators(c *fiber.Ctx) error {
 		        COALESCE(p.cover_photo, ''), COALESCE(p.location, ''), COALESCE(p.website, ''), p.sub_price
 		 FROM users u
 		 JOIN profiles p ON u.id = p.user_id
-		 WHERE u.role = 'creator'
+		 WHERE u.role = 'creator' AND p.hidden = false
 		 ORDER BY p.display_name ASC`,
 	)
 
@@ -252,16 +284,18 @@ func GetCreatorByUsername(c *fiber.Ctx) error {
 	defer cancel()
 
 	var id, displayName, bio, avatar, cover, location, website string
-	var subPrice float64
+	var subPrice, callRate float64
+	var callsEnabled bool
 
 	err := database.Pool.QueryRow(ctx,
 		`SELECT u.id, p.display_name, COALESCE(p.bio, ''), COALESCE(p.avatar, ''), 
-		        COALESCE(p.cover_photo, ''), COALESCE(p.location, ''), COALESCE(p.website, ''), p.sub_price
+		        COALESCE(p.cover_photo, ''), COALESCE(p.location, ''), COALESCE(p.website, ''), p.sub_price,
+		        COALESCE(p.calls_enabled, false), COALESCE(p.call_rate, 0.00)
 		 FROM users u
 		 JOIN profiles p ON u.id = p.user_id
-		 WHERE p.username = $1 AND u.role = 'creator'`,
+		 WHERE p.username = $1 AND u.role = 'creator' AND p.hidden = false`,
 		username,
-	).Scan(&id, &displayName, &bio, &avatar, &cover, &location, &website, &subPrice)
+	).Scan(&id, &displayName, &bio, &avatar, &cover, &location, &website, &subPrice, &callsEnabled, &callRate)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -317,21 +351,23 @@ func GetCreatorByUsername(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"id":           id,
-		"username":     username,
-		"display_name": displayName,
-		"bio":          bio,
-		"avatar":       avatar,
-		"cover_photo":  cover,
-		"location":     location,
-		"website":      website,
-		"sub_price":    subPrice,
-		"posts_count":  postsCount,
-		"photos_count": photosCount,
-		"videos_count": videosCount,
-		"fans_count":   fansCount,
-		"likes_count":  likesCount,
-		"top_fans":     topFans,
+		"id":            id,
+		"username":      username,
+		"display_name":  displayName,
+		"bio":           bio,
+		"avatar":        avatar,
+		"cover_photo":   cover,
+		"location":      location,
+		"website":       website,
+		"sub_price":     subPrice,
+		"posts_count":   postsCount,
+		"photos_count":  photosCount,
+		"videos_count":  videosCount,
+		"fans_count":    fansCount,
+		"likes_count":   likesCount,
+		"top_fans":      topFans,
+		"calls_enabled": callsEnabled,
+		"call_rate":     callRate,
 	})
 }
 
@@ -514,8 +550,8 @@ type UpdateDiscountRequest struct {
 }
 
 type UpdateCallsRequest struct {
-	CallsEnabled    *bool    `json:"calls_enabled"`
-	CallRate        *float64 `json:"call_rate"`
+	CallsEnabled *bool    `json:"calls_enabled"`
+	CallRate     *float64 `json:"call_rate"`
 }
 
 func ChangePassword(c *fiber.Ctx) error {
@@ -538,8 +574,8 @@ func ChangePassword(c *fiber.Ctx) error {
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "User lookup failed"})
 	}
 
-	// Verify current password only if it's not an OAuth account
-	if passwordHash != "clerk-oauth-managed-placeholder-hash" && req.CurrentPassword != "" {
+	// Verify current password only if this account already has a local password.
+	if !isExternalManagedPassword(passwordHash) && req.CurrentPassword != "" {
 		if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.CurrentPassword)); err != nil {
 			return c.Status(http.StatusUnauthorized).JSON(fiber.Map{"error": "Current password is incorrect"})
 		}
@@ -574,8 +610,8 @@ func DeleteAccount(c *fiber.Ctx) error {
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "User lookup failed"})
 	}
 
-	// Verify password only if it's not an OAuth account
-	if passwordHash != "clerk-oauth-managed-placeholder-hash" {
+	// Verify password only if this account already has a local password.
+	if !isExternalManagedPassword(passwordHash) {
 		if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
 			return c.Status(http.StatusUnauthorized).JSON(fiber.Map{"error": "Confirmation password is incorrect"})
 		}
@@ -587,6 +623,10 @@ func DeleteAccount(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"message": "Account deleted successfully"})
+}
+
+func isExternalManagedPassword(hash string) bool {
+	return hash == "external-auth-managed-placeholder-hash" || strings.Contains(hash, "oauth-managed-placeholder-hash")
 }
 
 func SubmitKYC(c *fiber.Ctx) error {

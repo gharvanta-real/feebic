@@ -4,13 +4,11 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useUser } from "@/context/UserContext";
-import { useClerk } from "@clerk/nextjs";
 import { filterByRole, mainNavLinks, roleLabel, settingsLinks, type AccountRole } from "@/lib/roleAccess";
 
 export default function SettingsMainPage() {
   const router = useRouter();
-  const { user, updateProfile, showToast } = useUser();
-  const { signOut } = useClerk();
+  const { user, updateProfile, showToast, logout } = useUser();
 
   const [pushNotifs, setPushNotifs] = useState(true);
   const [emailNotifs, setEmailNotifs] = useState(false);
@@ -49,8 +47,9 @@ export default function SettingsMainPage() {
   };
 
   const handleLogout = () => {
-    signOut();
+    logout();
     showToast("Logged out successfully");
+    router.push("/login");
   };
 
   if (!user) return null;

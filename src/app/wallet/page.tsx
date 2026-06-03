@@ -33,7 +33,13 @@ export default function WalletPage() {
       const wallet = await apiClient.get<{ transactions: Array<Omit<Transaction, "subtitle">> }>("/wallet");
       setTransactions(wallet.transactions.map((tx) => ({
         ...tx,
-        subtitle: tx.created_at ? new Date(tx.created_at).toLocaleString() : "",
+        subtitle: tx.created_at ? new Date(tx.created_at).toLocaleString("en-IN", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }) : "",
       })));
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to load wallet statements");
@@ -152,106 +158,149 @@ export default function WalletPage() {
 
   return (
     <AppShell>
+      {/* CSS Animation Keyframes for scanner effect */}
+      <style dangerouslySetInnerHTML={{__html: `
+        @keyframes scan {
+          0%, 100% { top: 0%; opacity: 0.8; }
+          50% { top: 100%; opacity: 0.8; }
+        }
+        .animate-scan {
+          position: absolute;
+          left: 0;
+          right: 0;
+          height: 3px;
+          background: #10b981;
+          box-shadow: 0 0 12px #10b981, 0 0 4px #10b981;
+          animation: scan 3s ease-in-out infinite;
+          pointer-events: none;
+          z-index: 10;
+        }
+      `}} />
+
       {/* Mobile Top Header */}
       <MobileHeader>
         <span className="text-sm font-bold text-text-muted select-none">Wallet</span>
       </MobileHeader>
 
-      {/* Main Page Content (Touching Sidebar) */}
-      <div className="app-page-shell space-y-6 animate-fade-in">
+      {/* Main Page Content (Clean spacing) */}
+      <div className="max-w-4xl mx-auto p-4 md:p-6 space-y-8 animate-fade-in">
           
           <div className="space-y-1 select-none">
-            <h1 className="text-lg font-black text-text-main font-sans tracking-tight">Wallet Manager</h1>
+            <h1 className="text-2xl font-black text-text-main font-sans tracking-tight">Wallet Manager</h1>
             <p className="text-xs text-text-muted font-medium">Manage your active wallet credits, scan UPI QR deposits, and view billing statements.</p>
           </div>
 
-          {/* Core Balance Card Widget (Premium neon-glassmorphic style card mockup) */}
-          <div className="bg-gradient-to-br from-primary to-accent text-white rounded-3xl p-6 md:p-7 shadow-lg flex flex-col justify-between select-none relative overflow-hidden aspect-[1.8/1] sm:aspect-[2.1/1]">
-            {/* Visual ambient graphics overlays */}
-            <div className="absolute right-4 bottom-4 h-24 w-24 rounded-full bg-white/10 blur-xl pointer-events-none" />
-            <div className="absolute left-1/3 top-4 h-28 w-28 rounded-full bg-white/5 blur-2xl pointer-events-none" />
-            
-            <div className="flex justify-between items-start">
+          {/* Premium Credit Card Mockup */}
+          <div className="w-full max-w-md mr-auto bg-gradient-to-tr from-slate-900 via-slate-800 to-indigo-950 text-white rounded-2xl p-6 shadow-2xl relative overflow-hidden border border-white/10 select-none aspect-[1.58/1] flex flex-col justify-between">
+            {/* Holographic reflection highlights */}
+            <div className="absolute right-0 top-0 w-48 h-48 rounded-full bg-gradient-to-tr from-indigo-500/20 to-pink-500/20 blur-3xl pointer-events-none" />
+            <div className="absolute left-[-20%] bottom-[-20%] w-48 h-48 rounded-full bg-blue-500/10 blur-3xl pointer-events-none" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-white/5 via-transparent to-transparent pointer-events-none" />
+
+            <div className="flex justify-between items-start z-10">
               <div className="space-y-0.5">
-                <p className="text-[9px] font-black uppercase tracking-widest text-white/80">Active Credits</p>
-                <h2 className="text-3xl md:text-4xl font-black font-sans">₹{walletBalance.toFixed(2)}</h2>
+                <p className="text-[10px] font-bold text-slate-400">Active credits</p>
+                <h2 className="text-3xl font-extrabold tracking-tight text-white mt-1">₹{walletBalance.toFixed(2)}</h2>
               </div>
-              <span className="material-symbols-outlined text-[36px] text-white/30" style={{ fontVariationSettings: "'FILL' 1" }}>
-                account_balance_wallet
-              </span>
+              <div className="flex flex-col items-end">
+                <span className="text-[12px] font-black text-white/90 italic">Felbic</span>
+                <span className="text-[7px] text-white/50">Platinum</span>
+              </div>
             </div>
 
-            <div className="flex justify-between items-end">
+            {/* Gold Card Chip and NFC Signal Icon */}
+            <div className="flex items-center gap-4 z-10 my-1">
+              <div className="w-11 h-8 rounded bg-gradient-to-br from-yellow-300 via-amber-400 to-yellow-600 border border-yellow-200/50 p-1 flex flex-col justify-between relative shadow-inner">
+                {/* Chip internal contact mock pattern */}
+                <div className="border-b border-black/10 w-full h-1/2 flex">
+                  <div className="border-r border-black/10 w-1/3 h-full"></div>
+                  <div className="border-r border-black/10 w-1/3 h-full"></div>
+                </div>
+                <div className="w-full h-1/2 flex">
+                  <div className="border-r border-black/10 w-1/3 h-full"></div>
+                  <div className="border-r border-black/10 w-1/3 h-full"></div>
+                </div>
+              </div>
+              <svg className="w-6 h-6 text-white/60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M4 12c0-4.418 3.582-8 8-8m0 16c4.418 0 8-3.582 8-8m-4 0c0-2.209-1.791-4-4-4m0 8c2.209 0 4-1.791 4-4" />
+              </svg>
+            </div>
+
+            <div className="flex justify-between items-end z-10">
               <div className="space-y-1">
-                <p className="text-[11px] font-mono tracking-wider text-white/90">
-                  {upiId ? `UPI ID: ${upiId}` : "No UPI Linked"}
+                <p className="text-xs font-mono tracking-widest text-slate-300">
+                  {upiId ? upiId : "No UPI linked"}
                 </p>
-                <p className="text-[9px] font-bold text-white/70 tracking-wide uppercase">
-                  {selectedUpiApp === "custom" ? "Custom UPI Address" : `${selectedUpiApp.toUpperCase()} Quick Account`}
+                <p className="text-[9px] font-bold text-slate-400 tracking-wide">
+                  {selectedUpiApp === "custom" ? "Custom UPI address" : `${selectedUpiApp.charAt(0).toUpperCase() + selectedUpiApp.slice(1)} quick account`}
                 </p>
               </div>
               <div className="text-right">
-                <span className="text-[9px] font-black bg-white/20 px-2 py-0.5 rounded-full select-none uppercase tracking-wider">
-                  Safe Pay UPI Secured
+                <span className="text-[8px] font-bold bg-white/10 border border-white/20 px-2 py-1 rounded-md text-emerald-400 select-none flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Safe Pay UPI
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Add Funds form container */}
-          <div className="bg-surface border border-border rounded-2xl p-5 shadow-sm space-y-5">
-            <div className="flex justify-between items-center pb-2 border-b border-border select-none">
-              <h2 className="text-xs font-black text-text-muted uppercase tracking-widest flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[18px]">add_circle</span>
+          {/* Deposit Widget Container */}
+          <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm space-y-6">
+            <div className="flex justify-between items-center pb-4 border-b border-border select-none">
+              <h2 className="text-sm font-extrabold text-text-main flex items-center gap-2">
+                <span className="material-symbols-outlined text-[20px] text-primary">add_circle</span>
                 <span>Deposit Wallet Funds</span>
               </h2>
               <button 
                 type="button"
                 onClick={() => setShowQRCode(!showQRCode)}
-                className={`text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full border transition-all flex items-center gap-1 cursor-pointer ${
+                className={`text-[10px] font-black px-4 py-1.5 rounded-full border transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ${
                   showQRCode 
                     ? "bg-primary/10 border-primary/20 text-primary" 
-                    : "bg-background border-border text-text-muted hover:border-text-muted"
+                    : "bg-background border-border text-text-muted hover:border-text-main hover:bg-slate-50"
                 }`}
               >
-                <span className="material-symbols-outlined text-[14px]">qr_code_2</span>
-                <span>{showQRCode ? "Use UPI App Form" : "Scan QR Code"}</span>
+                <span className="material-symbols-outlined text-[14px]">{showQRCode ? "dns" : "qr_code_2"}</span>
+                <span>{showQRCode ? "Use UPI form" : "Scan QR code"}</span>
               </button>
             </div>
 
             {showQRCode ? (
               /* QR Code Scan Mockup Interface */
-              <div className="flex flex-col items-center py-4 space-y-4 select-none animate-fade-in">
+              <div className="flex flex-col items-center py-4 space-y-6 select-none animate-fade-in">
                 <div className="text-center space-y-1">
-                  <p className="text-xs font-black text-text-main">Instant QR Scan Deposit</p>
-                  <p className="text-[10px] text-text-muted max-w-[280px]">Scan this secure QR code using any UPI client (GPay, PhonePe, Paytm) to transfer credits instantly.</p>
+                  <p className="text-sm font-extrabold text-text-main">Instant QR Scan Deposit</p>
+                  <p className="text-xs text-text-muted max-w-[320px]">Scan this secure QR code using any UPI app (GPay, PhonePe, Paytm) to transfer credits instantly.</p>
                 </div>
 
                 {/* Styled Interactive QR Mockup */}
-                <div className="relative p-4 bg-white rounded-2xl border-4 border-primary/20 shadow-md flex items-center justify-center">
-                  <div className="h-40 w-40 bg-gradient-to-br from-slate-100 to-slate-200 rounded-lg flex flex-col items-center justify-center border border-slate-300/40 relative">
-                    <span className="material-symbols-outlined text-[82px] text-slate-700 animate-pulse">qr_code_2</span>
-                    <span className="absolute bottom-2.5 bg-primary text-white text-[7.5px] font-black uppercase px-2 py-0.5 rounded-full select-none tracking-widest">
-                      FEEBIC UPI
+                <div className="relative p-5 bg-white rounded-2xl border border-slate-200 shadow-xl flex items-center justify-center overflow-hidden">
+                  <div className="h-44 w-44 bg-slate-50 rounded-xl flex flex-col items-center justify-center border border-slate-200 relative overflow-hidden">
+                    {/* Pulsing Scanner Green Line */}
+                    <div className="animate-scan" />
+                    
+                    {/* Mock QR matrix image using clean vector/icons */}
+                    <span className="material-symbols-outlined text-[110px] text-slate-800 opacity-90 select-none">qr_code_2</span>
+                    <span className="absolute bottom-2 bg-slate-900 text-white text-[7px] font-black px-2 py-0.5 rounded select-none border border-white/20">
+                      Felbic UPI
                     </span>
                   </div>
-                  <div className="absolute -inset-1 border-2 border-dashed border-primary rounded-2xl animate-spin duration-[20s]" />
                 </div>
 
                 {/* Amount presets inside QR view */}
-                <div className="w-full max-w-sm space-y-3 pt-2">
+                <div className="w-full max-w-sm space-y-4 pt-2">
                   <div>
-                    <label className="block text-[11px] font-bold text-text-muted text-center mb-1.5">Configure Scanner Amount (INR)</label>
-                    <div className="flex gap-2 justify-center">
+                    <label className="block text-[11px] font-bold text-text-muted text-center mb-2">Configure scanner amount (INR)</label>
+                    <div className="flex gap-2.5 justify-center">
                       {[100, 500, 1000].map((preset) => (
                         <button
                           key={preset}
                           type="button"
                           onClick={() => setFundsVal(preset.toFixed(2))}
                           disabled={isProcessing}
-                          className={`px-4 py-2 border rounded-xl transition-all font-black text-xs cursor-pointer ${
+                          className={`flex-1 py-2 border rounded-xl transition-all font-black text-xs cursor-pointer text-center ${
                             parseFloat(fundsVal) === preset 
-                              ? "bg-primary text-white border-primary shadow-sm"
+                              ? "bg-primary text-white border-primary shadow-md scale-105"
                               : "bg-background border-border text-text-main hover:border-text-muted"
                           }`}
                         >
@@ -266,17 +315,17 @@ export default function WalletPage() {
                       type="button"
                       onClick={handleSimulateQRDeposit}
                       disabled={isProcessing}
-                      className="w-full py-3 bg-gradient-to-r from-success to-emerald-600 text-white hover:opacity-95 active:scale-[0.98] rounded-full font-black text-xs uppercase tracking-wider shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:opacity-95 active:scale-[0.98] rounded-full font-black text-xs shadow-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                     >
                       {isProcessing ? (
                         <>
                           <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-                          <span>Verifying Scanner Transfer...</span>
+                          <span>Verifying scanner transfer...</span>
                         </>
                       ) : (
                         <>
-                          <span className="material-symbols-outlined text-[16px] leading-none font-bold">check_circle</span>
-                          <span>I Have Paid ₹{parseFloat(fundsVal).toFixed(2)}</span>
+                          <span className="material-symbols-outlined text-[18px] leading-none font-bold">check_circle</span>
+                          <span>I have paid ₹{parseFloat(fundsVal).toFixed(2)}</span>
                         </>
                       )}
                     </button>
@@ -285,13 +334,13 @@ export default function WalletPage() {
               </div>
             ) : (
               /* Premium UPI App Form Interface */
-              <form onSubmit={handleAddFunds} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <form onSubmit={handleAddFunds} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Funds Amount Input */}
-                  <div>
-                    <label className="block text-[11px] font-bold text-text-muted mb-1.5 ml-1 select-none">Deposit Amount (INR)</label>
-                    <div className="relative flex items-center bg-background border border-border rounded-xl px-4 py-2.5 focus-within:border-primary transition-all">
-                      <span className="text-xs font-bold text-text-muted mr-1 select-none">₹</span>
+                  <div className="space-y-1.5">
+                    <label className="block text-[11px] font-bold text-text-muted ml-1 select-none">Deposit amount (INR)</label>
+                    <div className="relative flex items-center bg-background border border-border rounded-xl px-4 py-3 focus-within:border-primary transition-all shadow-sm">
+                      <span className="text-sm font-extrabold text-text-muted mr-1.5 select-none">₹</span>
                       <input
                         type="number"
                         step="50"
@@ -300,14 +349,14 @@ export default function WalletPage() {
                         value={fundsVal}
                         onChange={(e) => setFundsVal(e.target.value)}
                         disabled={isProcessing}
-                        className="w-full text-xs font-bold bg-transparent outline-none text-text-main disabled:opacity-55"
+                        className="w-full text-sm font-bold bg-transparent outline-none text-text-main disabled:opacity-55"
                       />
                     </div>
                   </div>
 
                   {/* Domestic Load presets */}
-                  <div className="select-none">
-                    <label className="block text-[11px] font-bold text-text-muted mb-1.5 ml-1">Domestic Deposit Presets</label>
+                  <div className="space-y-1.5 select-none">
+                    <label className="block text-[11px] font-bold text-text-muted ml-1">Domestic deposit presets</label>
                     <div className="flex gap-2">
                       {[100, 500, 1000].map((preset) => (
                         <button
@@ -315,7 +364,7 @@ export default function WalletPage() {
                           type="button"
                           onClick={() => setFundsVal(preset.toFixed(2))}
                           disabled={isProcessing}
-                          className="flex-grow py-2.5 bg-background border border-border hover:border-text-muted active:scale-95 text-xs font-black rounded-xl transition-all cursor-pointer text-text-main"
+                          className="flex-grow py-3 bg-background border border-border hover:border-text-muted active:scale-95 text-xs font-black rounded-xl transition-all cursor-pointer text-text-main shadow-sm"
                         >
                           +₹{preset}
                         </button>
@@ -325,38 +374,50 @@ export default function WalletPage() {
                 </div>
 
                 {/* UPI App quick-select row */}
-                <div className="space-y-2 select-none">
-                  <label className="block text-[11px] font-bold text-text-muted ml-1">Quick Select UPI Application</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                    {([
-                      { id: "gpay", label: "Google Pay", icon: "sports_kabaddi" },
-                      { id: "phonepe", label: "PhonePe", icon: "account_balance" },
-                      { id: "paytm", label: "Paytm", icon: "payment" },
-                      { id: "bhim", label: "BHIM", icon: "star" },
-                      { id: "custom", label: "Custom ID", icon: "edit" }
-                    ] as const).map((app) => (
+                <div className="space-y-3 select-none">
+                  <label className="block text-[11px] font-bold text-text-muted ml-1">Quick select UPI application</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                    {[
+                      { id: "gpay", label: "Google Pay", color: "#4285F4", icon: (
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M12.24 10.285V14.4h6.887c-.648 2.41-2.519 4.114-6.887 4.114-4.887 0-8.868-4.003-8.868-8.914s3.98-8.914 8.868-8.914c2.263 0 4.274.807 5.86 2.378l3.107-3.13C18.36 1.83 15.534.8 12.24.8 6.033.8 1 5.863 1 12s5.033 11.2 11.24 11.2c6.48 0 10.774-4.59 10.774-11.2 0-.756-.067-1.332-.2-1.715H12.24z" fill="#4285F4"/>
+                        </svg>
+                      )},
+                      { id: "phonepe", label: "PhonePe", color: "#5f259f", icon: (
+                        <span className="material-symbols-outlined text-[16px] text-purple-600 leading-none">account_balance</span>
+                      )},
+                      { id: "paytm", label: "Paytm", color: "#00baf2", icon: (
+                        <span className="material-symbols-outlined text-[16px] text-sky-500 leading-none">payment</span>
+                      )},
+                      { id: "bhim", label: "BHIM", color: "#e35e25", icon: (
+                        <span className="material-symbols-outlined text-[16px] text-orange-600 leading-none">stars</span>
+                      )},
+                      { id: "custom", label: "Custom ID", color: "#64748b", icon: (
+                        <span className="material-symbols-outlined text-[16px] text-slate-500 leading-none">edit</span>
+                      )}
+                    ].map((app) => (
                       <button
                         key={app.id}
                         type="button"
-                        onClick={() => handleUpiAppSelect(app.id)}
+                        onClick={() => handleUpiAppSelect(app.id as any)}
                         disabled={isProcessing}
-                        className={`flex items-center gap-1.5 py-2 px-3 border rounded-xl transition-all cursor-pointer text-left ${
+                        className={`flex items-center justify-center gap-2 py-3 px-3 border rounded-xl transition-all cursor-pointer shadow-sm ${
                           selectedUpiApp === app.id
-                            ? "bg-primary/10 border-primary/40 text-primary font-black shadow-sm"
-                            : "bg-background border-border text-text-muted hover:border-text-muted"
+                            ? "bg-primary/10 border-primary/40 text-primary font-black scale-[1.03]"
+                            : "bg-background border-border text-text-muted hover:border-text-main"
                         }`}
                       >
-                        <span className="material-symbols-outlined text-[16px] leading-none">{app.icon}</span>
-                        <span className="text-[10px] font-black uppercase tracking-wider">{app.label}</span>
+                        {app.icon}
+                        <span className="text-[10px] font-bold">{app.label}</span>
                       </button>
                     ))}
                   </div>
                 </div>
 
                 {/* Custom UPI ID Text Input with Validator */}
-                <div className="space-y-1">
-                  <label className="block text-[11px] font-bold text-text-muted mb-1 ml-1 select-none">
-                    {selectedUpiApp === "custom" ? "Enter Custom UPI ID Address" : "UPI ID Address (Auto-filled)"}
+                <div className="space-y-2">
+                  <label className="block text-[11px] font-bold text-text-muted ml-1 select-none">
+                    {selectedUpiApp === "custom" ? "Enter custom UPI ID address" : "UPI ID address (auto-filled)"}
                   </label>
                   <input
                     type="text"
@@ -364,21 +425,21 @@ export default function WalletPage() {
                     value={upiId}
                     onChange={handleUpiIdChange}
                     disabled={isProcessing || selectedUpiApp !== "custom"}
-                    placeholder="example@upi"
-                    className={`w-full px-4 py-2.5 bg-background border rounded-xl focus:border-primary transition-all text-xs font-semibold outline-none text-text-main disabled:opacity-75 ${
+                    placeholder="username@bank"
+                    className={`w-full px-4 py-3 bg-background border rounded-xl focus:border-primary transition-all text-xs font-semibold outline-none text-text-main disabled:opacity-75 shadow-sm ${
                       upiValidationError ? "border-red-500" : "border-border"
                     }`}
                   />
                   {upiValidationError ? (
-                    <p className="text-[10px] text-red-500 font-bold ml-1 flex items-center gap-1 animate-pulse">
+                    <p className="text-[10px] text-red-500 font-bold ml-1 flex items-center gap-1.5 animate-pulse">
                       <span className="material-symbols-outlined text-[12px] leading-none">warning</span>
                       <span>{upiValidationError}</span>
                     </p>
                   ) : (
                     upiId && (
-                      <p className="text-[10px] text-success font-bold ml-1 flex items-center gap-1 select-none">
-                        <span className="material-symbols-outlined text-[12px] leading-none">check_circle</span>
-                        <span>Format Validated (Real-time checks passed)</span>
+                      <p className="text-[10px] text-emerald-600 font-bold ml-1 flex items-center gap-1.5 select-none animate-fade-in">
+                        <span className="material-symbols-outlined text-[14px] leading-none text-emerald-600">check_circle</span>
+                        <span>Format validated (Security check passed)</span>
                       </p>
                     )
                   )}
@@ -387,17 +448,17 @@ export default function WalletPage() {
                 <button
                   type="submit"
                   disabled={isProcessing || !!upiValidationError}
-                  className="w-full mt-2 py-3 bg-primary text-white hover:opacity-95 active:scale-[0.98] rounded-full font-black text-xs uppercase tracking-wider shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 select-none"
+                  className="w-full mt-2 py-3.5 bg-primary text-white hover:opacity-95 active:scale-[0.98] rounded-full font-black text-xs shadow-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 select-none"
                 >
                   {isProcessing ? (
                     <>
                       <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-                      <span>Securing Transaction...</span>
+                      <span>Securing transaction...</span>
                     </>
                   ) : (
                     <>
-                      <span className="material-symbols-outlined text-[16px] leading-none font-bold">lock</span>
-                      <span>Deposit ₹{parseFloat(fundsVal).toFixed(2)} via UPI Pay</span>
+                      <span className="material-symbols-outlined text-[18px] leading-none font-bold">lock</span>
+                      <span>Deposit ₹{parseFloat(fundsVal).toFixed(2)} via UPI pay</span>
                     </>
                   )}
                 </button>
@@ -406,55 +467,63 @@ export default function WalletPage() {
           </div>
 
           {/* Transactions Statement list */}
-          <div className="bg-surface border border-border rounded-2xl p-5 space-y-4 shadow-sm select-none">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-border pb-3 gap-3">
-              <h2 className="text-xs font-black text-text-muted uppercase tracking-widest flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[18px]">receipt_long</span>
-                <span>Billing Statements</span>
+          <div className="bg-surface border border-border rounded-2xl p-6 space-y-6 shadow-sm select-none">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-border pb-4 gap-4">
+              <h2 className="text-sm font-extrabold text-text-main flex items-center gap-2">
+                <span className="material-symbols-outlined text-[20px] text-primary">receipt_long</span>
+                <span>Billing statements</span>
               </h2>
-
-              {/* Transactions Tab Filter */}
-              <div className="flex gap-4 overflow-x-auto no-scrollbar max-w-full select-none bg-transparent">
-                {([
-                  { key: "all", label: "All" },
-                  { key: "deposit", label: "Deposits" },
-                  { key: "subscription", label: "Subs" },
-                  { key: "tip", label: "Tips" }
-                ] as const).map((tab) => (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => setActiveTab(tab.key)}
-                    className={`text-[12px] font-extrabold pb-3.5 -mb-3.5 cursor-pointer transition-all border-b-2 leading-none relative ${
-                      activeTab === tab.key
-                        ? "border-primary text-primary font-black"
-                        : "border-transparent text-text-muted hover:text-text-main"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
             </div>
 
             {filteredTransactions.length === 0 ? (
-              <p className="text-xs text-text-muted py-6 text-center">No statements match your filter criteria.</p>
+              <div className="text-center py-8 space-y-2">
+                <span className="material-symbols-outlined text-[36px] text-text-muted">receipt_long</span>
+                <p className="text-xs text-text-muted font-medium">No statements match your filter criteria.</p>
+              </div>
             ) : (
               <div className="space-y-4 divide-y divide-border/40">
-                {filteredTransactions.map((tx, idx) => (
-                  <div
-                    key={tx.id}
-                    className={`flex justify-between items-center gap-3 ${idx > 0 ? "pt-4" : ""}`}
-                  >
-                    <div className="min-w-0">
-                      <p className="text-xs font-extrabold text-text-main truncate">{tx.title}</p>
-                      <p className="text-[10px] text-text-muted mt-0.5">{tx.subtitle}</p>
+                {filteredTransactions.map((tx, idx) => {
+                  const isNegative = tx.amount < 0;
+                  return (
+                    <div
+                      key={tx.id}
+                      className={`flex justify-between items-center gap-4 ${idx > 0 ? "pt-4" : ""}`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {/* Transaction Type Icon */}
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border ${
+                          isNegative 
+                            ? "bg-rose-500/5 border-rose-500/10 text-rose-500" 
+                            : "bg-emerald-500/5 border-emerald-500/10 text-emerald-500"
+                        }`}>
+                          <span className="material-symbols-outlined text-[18px]">
+                            {tx.type === "deposit" 
+                              ? "arrow_downward" 
+                              : tx.type === "subscription" 
+                                ? "card_membership" 
+                                : "monetization_on"}
+                          </span>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-black text-text-main truncate">{tx.title}</p>
+                          <p className="text-[10px] text-text-muted mt-0.5">{tx.subtitle}</p>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className={`text-xs font-black ${isNegative ? "text-rose-500" : "text-emerald-500"}`}>
+                          {isNegative ? `-₹${Math.abs(tx.amount).toFixed(2)}` : `+₹${tx.amount.toFixed(2)}`}
+                        </p>
+                        <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${
+                          isNegative 
+                            ? "bg-rose-500/10 text-rose-500" 
+                            : "bg-emerald-500/10 text-emerald-500"
+                        }`}>
+                          {isNegative ? "Debit" : "Success"}
+                        </span>
+                      </div>
                     </div>
-                    <p className={`text-xs font-black shrink-0 ${tx.amount < 0 ? "text-accent" : "text-success"}`}>
-                      {tx.amount < 0 ? `-₹${Math.abs(tx.amount).toFixed(2)}` : `+₹${tx.amount.toFixed(2)}`}
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

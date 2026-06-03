@@ -11,6 +11,22 @@ import { apiClient } from "@/lib/apiClient";
 export default function NotificationsPage() {
   const { markNotificationsAsRead, showToast } = useUser();
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [activeTab, setActiveTab] = useState<"all" | "subscribes" | "tips" | "interactions">("all");
+
+  const getFilteredNotifications = () => {
+    switch (activeTab) {
+      case "subscribes":
+        return notifications.filter(n => n.type === "subscribe");
+      case "tips":
+        return notifications.filter(n => n.type === "tip" || n.type === "unlock" || n.type === "fundraiser");
+      case "interactions":
+        return notifications.filter(n => n.type === "like" || n.type === "comment" || n.type === "repost");
+      default:
+        return notifications;
+    }
+  };
+
+  const filteredNotifications = getFilteredNotifications();
 
   const handleDismiss = async (id: string) => {
     try {
@@ -137,19 +153,44 @@ export default function NotificationsPage() {
             </div>
           </div>
 
+          {/* Categorization tabs */}
+          <div className="flex items-center justify-between border-b border-border pb-0 select-none bg-transparent">
+            <div className="flex gap-6 overflow-x-auto no-scrollbar w-full">
+              {([
+                { key: "all", label: "All", icon: "notifications" },
+                { key: "subscribes", label: "Subscriptions", icon: "person_add" },
+                { key: "tips", label: "Tips & Unlocks", icon: "account_balance_wallet" },
+                { key: "interactions", label: "Interactions", icon: "forum" }
+              ] as const).map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`text-[13px] font-extrabold pb-3 cursor-pointer transition-all border-b-2 leading-none relative flex items-center gap-1.5 shrink-0 ${
+                    activeTab === tab.key
+                      ? "border-primary text-primary font-black"
+                      : "border-transparent text-text-muted hover:text-text-main"
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[16px] leading-none" style={{ fontVariationSettings: activeTab === tab.key ? "'FILL' 1" : undefined }}>{tab.icon}</span>
+                  <span>{tab.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Notifications feed list */}
           <div className="space-y-4">
-            {notifications.length === 0 ? (
+            {filteredNotifications.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-center space-y-3 select-none">
                 <span className="material-symbols-outlined text-[54px] text-text-muted">notifications_off</span>
-                <h3 className="text-base font-extrabold text-text-main">No notifications yet</h3>
+                <h3 className="text-base font-extrabold text-text-main">No notifications found</h3>
                 <p className="text-xs text-text-muted max-w-[280px]">
-                  When fans subscribe, tip you, or interact with your updates, they will appear here!
+                  There are no notifications in this category.
                 </p>
               </div>
             ) : (
               <div className="divide-y divide-border/40 space-y-3 select-none">
-                {notifications.map((notif, idx) => (
+                {filteredNotifications.map((notif, idx) => (
                   <div
                     key={notif.id}
                     className={`flex items-start gap-4 group transition-all ${
@@ -175,7 +216,7 @@ export default function NotificationsPage() {
                         {notif.text}
                         {notif.amount && (
                           <span className="font-extrabold text-success ml-1">
-                            ${notif.amount.toFixed(2)}
+                            ₹{notif.amount.toFixed(2)}
                           </span>
                         )}
                       </p>

@@ -1,15 +1,17 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { RightPanel } from "@/components/layout/RightPanel";
 import { MobileHeader } from "@/components/layout/MobileHeader";
 import { StorySlider } from "@/components/features/StorySlider";
 import { PostCard } from "@/components/features/PostCard";
-import type { Post } from "@/lib/mockDb";
+import type { Post, Creator } from "@/lib/mockDb";
 import { useUser } from "@/context/UserContext";
 import { Modal } from "@/components/ui/Modal";
 import { apiClient } from "@/lib/apiClient";
+import Link from "next/link";
+import { VerifiedBadge } from "@/components/ui/VerifiedBadge";
 
 type BackendPost = Partial<Post> & {
   creator_username?: string;
@@ -30,6 +32,8 @@ type BackendPost = Partial<Post> & {
   isUnlocked?: boolean;
   created_at?: string;
 };
+
+const FEED_PAGE_SIZE = 10;
 
 const normalizePost = (post: BackendPost, index: number): Post => {
   const mediaUrls = post.mediaUrls || post.media_urls || [];
@@ -61,14 +65,41 @@ const normalizePost = (post: BackendPost, index: number): Post => {
   } as Post;
 };
 
+interface SearchCreator {
+  name: string;
+  username: string;
+  avatar: string;
+  fansCount: string;
+}
+
+interface BackendCreator {
+  id?: string;
+  name?: string;
+  display_name?: string;
+  displayName?: string;
+  username: string;
+  avatar?: string;
+  fans_count?: number;
+}
+
 export default function HomeFeedPage() {
   const { subscriptions, walletBalance, user } = useUser();
   const [posts, setPosts] = useState<Post[]>([]);
   const [feedError, setFeedError] = useState<string | null>(null);
+  const [isFeedLoading, setIsFeedLoading] = useState(true);
+  const [isLoadingMorePosts, setIsLoadingMorePosts] = useState(false);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const feedPageRef = useRef(1);
 
   const [activeTab, setActiveTab] = useState<"For You" | "Following" | "Subscription" | "Trending">("For You");
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  
+  // Search Revamp States
+  const [searchTab, setSearchTab] = useState<"all" | "accounts" | "posts" | "videos">("all");
+  const [allCreators, setAllCreators] = useState<SearchCreator[]>([]);
+  const [allSearchPosts, setAllSearchPosts] = useState<Post[]>([]);
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
 
   // Custom Filter & Sort States (Tune modal settings)
   const [filterType, setFilterType] = useState<"all" | "photos" | "videos" | "polls" | "fundraisers">("all");
@@ -79,69 +110,86 @@ export default function HomeFeedPage() {
     ? "Default"
     : `${filterType === "all" ? "All" : filterType} • ${sortBy}`;
 
-  const fetchFeedPosts = useCallback(async () => {
+  const applyFeedFilters = useCallback((inputPosts: Post[]) => {
+    let filtered = inputPosts;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(
+        (p) =>
+          p.content.toLowerCase().includes(q) ||
+          p.creatorName.toLowerCase().includes(q) ||
+          p.creatorUsername.toLowerCase().includes(q)
+      );
+    }
+
+    if (activeTab === "Following") {
+      filtered = filtered.filter((p) => subscriptions.includes(p.creatorUsername));
+    } else if (activeTab === "Subscription") {
+      filtered = filtered.filter((p) => p.isPremium);
+    } else if (activeTab === "Trending") {
+      filtered = [...filtered].sort((a, b) => b.likes - a.likes);
+    }
+
+    if (filterType === "photos") {
+      filtered = filtered.filter(p => p.mediaType === "image");
+    } else if (filterType === "videos") {
+      filtered = filtered.filter(p => p.mediaType === "video");
+    } else if (filterType === "polls") {
+      filtered = filtered.filter(p => p.poll !== null && p.poll !== undefined);
+    } else if (filterType === "fundraisers") {
+      filtered = filtered.filter(p => p.fundraiser !== null && p.fundraiser !== undefined);
+    }
+
+    if (sortBy === "likes") {
+      filtered = [...filtered].sort((a, b) => b.likes - a.likes);
+    } else if (sortBy === "comments") {
+      filtered = [...filtered].sort((a, b) => b.commentsCount - a.commentsCount);
+    }
+
+    return filtered;
+  }, [activeTab, filterType, searchQuery, sortBy, subscriptions]);
+
+  const fetchFeedPosts = useCallback(async (reset = true) => {
+    if (reset) {
+      feedPageRef.current = 1;
+      setIsFeedLoading(true);
+      setFeedError(null);
+      setHasMorePosts(true);
+    } else {
+      setIsLoadingMorePosts(true);
+    }
+
     try {
-      const allPosts = (await apiClient.get<BackendPost[]>("/posts")).map((post, idx) => normalizePost(post, idx));
-      let filtered = allPosts;
-
-      // Handle search filtering if active
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        filtered = filtered.filter(
-          (p) =>
-            p.content.toLowerCase().includes(q) ||
-            p.creatorName.toLowerCase().includes(q) ||
-            p.creatorUsername.toLowerCase().includes(q)
-        );
-      }
-
-      // Handle sub-tab filtering
-      if (activeTab === "Following") {
-        filtered = filtered.filter((p) => subscriptions.includes(p.creatorUsername));
-      } else if (activeTab === "Subscription") {
-        filtered = filtered.filter((p) => p.isPremium);
-      } else if (activeTab === "Trending") {
-        // Sort by likes descending
-        filtered = [...filtered].sort((a, b) => b.likes - a.likes);
-      }
-
-      // Custom Category/Type filtering (via tune modal)
-      if (filterType === "photos") {
-        filtered = filtered.filter(p => p.mediaType === "image");
-      } else if (filterType === "videos") {
-        filtered = filtered.filter(p => p.mediaType === "video");
-      } else if (filterType === "polls") {
-        filtered = filtered.filter(p => p.poll !== null && p.poll !== undefined);
-      } else if (filterType === "fundraisers") {
-        filtered = filtered.filter(p => p.fundraiser !== null && p.fundraiser !== undefined);
-      }
-
-      // Custom Sorting (via tune modal)
-      if (sortBy === "likes") {
-        filtered = [...filtered].sort((a, b) => b.likes - a.likes);
-      } else if (sortBy === "comments") {
-        filtered = [...filtered].sort((a, b) => b.commentsCount - a.commentsCount);
-      }
+      const targetPage = reset ? 1 : feedPageRef.current;
+      const fetchedPosts = await apiClient.get<BackendPost[]>(`/posts?page=${targetPage}&limit=${FEED_PAGE_SIZE}`);
+      const pagePosts = fetchedPosts.map((post, idx) => normalizePost(post, idx + (targetPage - 1) * FEED_PAGE_SIZE));
+      const filteredPage = applyFeedFilters(pagePosts);
 
       setFeedError(null);
-      setPosts(filtered);
+      setPosts((prev) => reset ? filteredPage : applyFeedFilters([...prev, ...filteredPage]));
+      setHasMorePosts(fetchedPosts.length === FEED_PAGE_SIZE);
+      feedPageRef.current = targetPage + 1;
     } catch (err) {
-      setPosts([]);
+      if (reset) setPosts([]);
       setFeedError(err instanceof Error ? err.message : "Unable to load posts from the API.");
+    } finally {
+      setIsFeedLoading(false);
+      setIsLoadingMorePosts(false);
     }
-  }, [activeTab, filterType, searchQuery, sortBy, subscriptions]);
+  }, [applyFeedFilters]);
 
 
   useEffect(() => {
     if (user) {
       setTimeout(() => {
-        fetchFeedPosts();
+        fetchFeedPosts(true);
       }, 0);
     }
 
     const handlePostsUpdate = () => {
       if (user) {
-        fetchFeedPosts();
+        fetchFeedPosts(true);
       }
     };
     window.addEventListener("ch_posts_updated", handlePostsUpdate);
@@ -152,6 +200,54 @@ export default function HomeFeedPage() {
       window.removeEventListener("ch_blocked_users_updated", handlePostsUpdate);
     };
   }, [user, fetchFeedPosts]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const handleScroll = () => {
+      const distanceFromBottom =
+        document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
+      if (
+        distanceFromBottom < 700 &&
+        hasMorePosts &&
+        !isFeedLoading &&
+        !isLoadingMorePosts
+      ) {
+        fetchFeedPosts(false);
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [fetchFeedPosts, hasMorePosts, isFeedLoading, isLoadingMorePosts, user]);
+
+  useEffect(() => {
+    if (!showSearchModal) return;
+
+    const fetchSearchData = async () => {
+      setIsSearchLoading(true);
+      try {
+        const postsData = await apiClient.get<BackendPost[]>("/posts");
+        const mappedPosts = postsData.map((post, idx) => normalizePost(post, idx));
+        setAllSearchPosts(mappedPosts);
+
+        const creatorsData = await apiClient.get<BackendCreator[]>("/users/creators");
+        const mappedCreators = creatorsData.map((creator) => ({
+          name: creator.display_name || creator.displayName || creator.name || "Felbic Creator",
+          username: creator.username,
+          avatar: creator.avatar || "/assets/39bc5c3eed51d62c1022c60686bb459a.png",
+          fansCount: `${creator.fans_count || 0} fans`,
+        }));
+        setAllCreators(mappedCreators);
+      } catch (err) {
+        console.error("Failed to fetch search metadata:", err);
+      } finally {
+        setIsSearchLoading(false);
+      }
+    };
+
+    fetchSearchData();
+  }, [showSearchModal]);
 
   return (
     <AppShell>
@@ -173,13 +269,9 @@ export default function HomeFeedPage() {
           <div className="sticky top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 pt-4 pb-3 bg-background/95 backdrop-blur-md border-b border-border/60 select-none">
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
-                <h1 className="text-[24px] font-black text-text-main font-sans tracking-tight leading-none">
+                <h1 className="text-lg font-black text-text-main font-sans tracking-tight leading-none">
                   Home
                 </h1>
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-wider text-text-muted">
-                  <span className="rounded-full bg-primary/10 px-2.5 py-1 text-primary">{posts.length} posts</span>
-                  <span className="rounded-full bg-surface border border-border px-2.5 py-1">{activeFilterLabel}</span>
-                </div>
               </div>
             
               {/* Header Icons */}
@@ -215,7 +307,7 @@ export default function HomeFeedPage() {
                       : "text-text-muted hover:text-text-main"
                   }`}
                 >
-                  {tab}
+                  {tab} {activeTab === tab ? `(${posts.length})` : ""}
                 </button>
               ))}
             </div>
@@ -236,12 +328,26 @@ export default function HomeFeedPage() {
                 <h3 className="text-base font-extrabold text-text-main">Feed API unavailable</h3>
                 <p className="max-w-[360px] text-xs font-medium text-text-muted">{feedError}</p>
                 <button
-                  onClick={fetchFeedPosts}
+                  onClick={() => fetchFeedPosts(true)}
                   className="rounded-full bg-primary px-5 py-2 text-xs font-black text-white"
                 >
                   Retry
                 </button>
               </div>
+            ) : isFeedLoading ? (
+              Array.from({ length: 4 }).map((_, idx) => (
+                <div key={idx} className="animate-pulse rounded-2xl border border-border bg-surface p-4">
+                  <div className="mb-4 flex items-center gap-3">
+                    <div className="h-11 w-11 rounded-full bg-border" />
+                    <div className="space-y-2">
+                      <div className="h-3 w-32 rounded bg-border" />
+                      <div className="h-2.5 w-20 rounded bg-border" />
+                    </div>
+                  </div>
+                  <div className="h-[300px] rounded-2xl bg-border" />
+                  <div className="mt-4 h-3 w-56 rounded bg-border" />
+                </div>
+              ))
             ) : posts.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-border/60 bg-surface py-20 text-center space-y-3">
                 <span className="material-symbols-outlined text-[54px] text-text-muted">feed</span>
@@ -259,19 +365,25 @@ export default function HomeFeedPage() {
                 />
               ))
             )}
+            {isLoadingMorePosts && (
+              <div className="flex justify-center py-6">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              </div>
+            )}
           </div>
         </div>
 
         {/* Right Panel Sidebar (Hidden on mobile) */}
         <RightPanel />
       </div>
-      <Modal isOpen={showSearchModal} onClose={() => setShowSearchModal(false)} title="Search Posts">
-        <div className="space-y-4 select-none">
-          <div className="flex items-center rounded-2xl border border-primary/20 bg-background px-4 py-3">
+      <Modal isOpen={showSearchModal} onClose={() => setShowSearchModal(false)} title="Search Felbic" size="lg">
+        <div className="space-y-4 select-none min-h-[480px] flex flex-col">
+          {/* Search Input field */}
+          <div className="flex items-center rounded-2xl border border-border/80 bg-background/60 px-4.5 py-3 shadow-inner">
             <span className="material-symbols-outlined mr-3 text-[19px] text-primary">search</span>
             <input
               type="text"
-              placeholder="Search posts..."
+              placeholder="Search creators, posts, or videos..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-transparent text-sm font-bold text-text-main outline-none placeholder-text-muted"
@@ -287,22 +399,213 @@ export default function HomeFeedPage() {
               </button>
             )}
           </div>
-          <div className="flex items-center justify-end gap-3 border-t border-border pt-4">
-            <button
-              onClick={() => {
-                setSearchQuery("");
-                setShowSearchModal(false);
-              }}
-              className="rounded-full px-4.5 py-2 text-xs font-bold text-text-muted transition-colors hover:text-text-main cursor-pointer"
-            >
-              Clear
-            </button>
-            <button
-              onClick={() => setShowSearchModal(false)}
-              className="rounded-full bg-primary px-6 py-2 text-xs font-black text-white transition-all hover:opacity-95 cursor-pointer"
-            >
-              Search
-            </button>
+
+          {/* Search Tabs */}
+          <div className="flex border-b border-border/60 text-xs">
+            {(["all", "accounts", "posts", "videos"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setSearchTab(tab)}
+                className={`flex-1 pb-2.5 pt-1 font-extrabold text-center cursor-pointer transition-all border-b-2 -mb-px capitalize ${
+                  searchTab === tab
+                    ? "border-primary text-primary"
+                    : "border-transparent text-text-muted hover:text-text-main"
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          {/* Results Container */}
+          <div className="flex-1 min-h-[400px] max-h-[500px] overflow-y-auto pr-0.5 no-scrollbar space-y-3.5 pt-1">
+            {isSearchLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              </div>
+            ) : !searchQuery.trim() ? (
+              /* Empty State: Suggested Creators */
+              <div className="space-y-3">
+                <h4 className="text-[10px] font-black text-text-muted uppercase tracking-wider">Suggested Creators</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  {allCreators.slice(0, 4).map((c) => (
+                    <Link
+                      key={c.username}
+                      href={`/profile?u=${c.username}`}
+                      onClick={() => setShowSearchModal(false)}
+                      className="flex items-center gap-2.5 rounded-2xl border border-border bg-surface-container/60 p-2.5 hover:border-primary/45 transition-all group animate-fade-in"
+                    >
+                      <img src={c.avatar} className="w-9 h-9 rounded-full object-cover border border-border group-hover:opacity-90" />
+                      <div className="min-w-0">
+                        <p className="text-xs font-black text-text-main truncate group-hover:text-primary transition-colors">{c.name}</p>
+                        <p className="text-[10px] text-text-muted truncate mt-0.5">@{c.username}</p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ) : (() => {
+              const query = searchQuery.trim().toLowerCase();
+              const matchedCreators = allCreators.filter(
+                (c) => c.name.toLowerCase().includes(query) || c.username.toLowerCase().includes(query)
+              );
+              const matchedPosts = allSearchPosts.filter(
+                (p) =>
+                  p.content.toLowerCase().includes(query) ||
+                  p.creatorName.toLowerCase().includes(query) ||
+                  p.creatorUsername.toLowerCase().includes(query)
+              );
+              const matchedVideos = matchedPosts.filter((p) => p.mediaType === "video");
+
+              const hasCreators = matchedCreators.length > 0;
+              const hasPosts = matchedPosts.length > 0;
+              const hasVideos = matchedVideos.length > 0;
+
+              if (searchTab === "all" && !hasCreators && !hasPosts) {
+                return (
+                  <div className="flex flex-col items-center justify-center py-12 text-center space-y-2 animate-fade-in">
+                    <span className="material-symbols-outlined text-[36px] text-text-muted">search_off</span>
+                    <p className="text-xs font-black text-text-main">No results found for &quot;{searchQuery}&quot;</p>
+                    <p className="text-[10.5px] text-text-muted max-w-[240px]">Try checking your spelling or search for another keyword.</p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-4 animate-fade-in">
+                  {/* Creators Section */}
+                  {(searchTab === "all" || searchTab === "accounts") && (
+                    <div className="space-y-2">
+                      {searchTab === "all" && hasCreators && (
+                        <h4 className="text-[10px] font-black text-text-muted uppercase tracking-wider">Creators</h4>
+                      )}
+                      {hasCreators ? (
+                        <div className="space-y-2">
+                          {(searchTab === "all" ? matchedCreators.slice(0, 3) : matchedCreators).map((creator) => (
+                            <Link
+                              key={creator.username}
+                              href={`/profile?u=${creator.username}`}
+                              onClick={() => setShowSearchModal(false)}
+                              className="flex items-center justify-between gap-3 p-2.5 rounded-2xl border border-border/50 bg-surface/40 hover:border-primary/40 hover:bg-primary/5 transition-all group"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="relative shrink-0">
+                                  <img src={creator.avatar} className="w-10 h-10 rounded-full object-cover border border-border" />
+                                  <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border border-surface rounded-full" />
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1">
+                                    <p className="text-xs font-black text-text-main truncate leading-none group-hover:text-primary transition-colors">{creator.name}</p>
+                                    <VerifiedBadge size="xs" />
+                                  </div>
+                                  <p className="text-[10px] text-text-muted mt-1 font-medium">@{creator.username}</p>
+                                </div>
+                              </div>
+                              <span className="material-symbols-outlined text-[18px] text-text-muted group-hover:text-primary transition-colors">chevron_right</span>
+                            </Link>
+                          ))}
+                        </div>
+                      ) : (
+                        searchTab === "accounts" && (
+                          <p className="text-xs font-bold text-text-muted text-center py-6">No matching accounts found.</p>
+                        )
+                      )}
+                    </div>
+                  )}
+
+                  {/* Posts Section */}
+                  {(searchTab === "all" || searchTab === "posts") && (
+                    <div className="space-y-2">
+                      {searchTab === "all" && hasPosts && (
+                        <h4 className="text-[10px] font-black text-text-muted uppercase tracking-wider">Posts</h4>
+                      )}
+                      {hasPosts ? (
+                        <div className="space-y-2">
+                          {(searchTab === "all" ? matchedPosts.slice(0, 3) : matchedPosts).map((post) => (
+                            <Link
+                              key={post.id}
+                              href={`/post/${post.id}`}
+                              onClick={() => setShowSearchModal(false)}
+                              className="flex gap-3 p-3 rounded-2xl border border-border/50 bg-surface/40 hover:border-primary/40 hover:bg-primary/5 transition-all min-w-0 group"
+                            >
+                              <img src={post.creatorAvatar} className="w-8 h-8 rounded-full object-cover border border-border shrink-0" />
+                              <div className="flex-1 min-w-0 space-y-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-black text-text-main truncate group-hover:text-primary transition-colors">{post.creatorName}</span>
+                                  <span className="text-[9px] text-text-muted truncate">@{post.creatorUsername}</span>
+                                  <span className="text-[8px] text-text-muted/60 ml-auto">{post.time}</span>
+                                </div>
+                                <p className="text-[10.5px] font-medium text-text-muted line-clamp-2 leading-relaxed">
+                                  {post.content}
+                                </p>
+                              </div>
+                              {post.mediaUrl && (
+                                <div className="relative w-12 h-12 rounded-lg border border-border/60 overflow-hidden shrink-0 bg-neutral-900 flex items-center justify-center">
+                                  {post.mediaType === "video" ? (
+                                    <>
+                                      <video src={post.mediaUrl} className="w-full h-full object-cover opacity-80" muted />
+                                      <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                                        <span className="material-symbols-outlined text-white text-[16px]" style={{ fontVariationSettings: "'FILL' 1" }}>play_arrow</span>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <img src={post.mediaUrl} className="w-full h-full object-cover" />
+                                  )}
+                                </div>
+                              )}
+                            </Link>
+                          ))}
+                        </div>
+                      ) : (
+                        searchTab === "posts" && (
+                          <p className="text-xs font-bold text-text-muted text-center py-6">No matching posts found.</p>
+                        )
+                      )}
+                    </div>
+                  )}
+
+                  {/* Videos Section */}
+                  {searchTab === "videos" && (
+                    <div className="space-y-2">
+                      {hasVideos ? (
+                        <div className="space-y-2">
+                          {matchedVideos.map((post) => (
+                            <Link
+                              key={post.id}
+                              href={`/post/${post.id}`}
+                              onClick={() => setShowSearchModal(false)}
+                              className="flex gap-3 p-3 rounded-2xl border border-border/50 bg-surface/40 hover:border-primary/40 hover:bg-primary/5 transition-all min-w-0 group"
+                            >
+                              <img src={post.creatorAvatar} className="w-8 h-8 rounded-full object-cover border border-border shrink-0" />
+                              <div className="flex-1 min-w-0 space-y-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-black text-text-main truncate group-hover:text-primary transition-colors">{post.creatorName}</span>
+                                  <span className="text-[9px] text-text-muted truncate">@{post.creatorUsername}</span>
+                                  <span className="text-[8px] text-text-muted/60 ml-auto">{post.time}</span>
+                                </div>
+                                <p className="text-[10.5px] font-medium text-text-muted line-clamp-2 leading-relaxed">
+                                  {post.content}
+                                </p>
+                              </div>
+                              {post.mediaUrl && (
+                                <div className="relative w-12 h-12 rounded-lg border border-border/60 overflow-hidden shrink-0 bg-neutral-900 flex items-center justify-center">
+                                  <video src={post.mediaUrl} className="w-full h-full object-cover opacity-80" muted />
+                                  <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                                    <span className="material-symbols-outlined text-white text-[16px]" style={{ fontVariationSettings: "'FILL' 1" }}>play_arrow</span>
+                                  </div>
+                                </div>
+                              )}
+                            </Link>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs font-bold text-text-muted text-center py-6">No matching video posts found.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </Modal>

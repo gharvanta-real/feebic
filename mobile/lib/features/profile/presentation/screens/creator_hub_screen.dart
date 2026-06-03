@@ -4,6 +4,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../feed/presentation/screens/create_post_screen.dart';
 import '../../../chat/presentation/screens/chat_list_screen.dart';
+import 'creator_posts_manager_screen.dart';
 import 'payout_setup_screen.dart';
 import 'subscription_tiers_screen.dart';
 import '../widgets/dashboard_widgets.dart';
@@ -155,6 +156,15 @@ class CreatorHubScreen extends StatelessWidget {
                             builder: (_) => const CreatePostScreen())),
                   ),
                   ActionTile(
+                    icon: Icons.view_list_rounded,
+                    title: 'Manage posts',
+                    subtitle: 'Edit, hide, archive, restore, visibility',
+                    onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const CreatorPostsManagerScreen())),
+                  ),
+                  ActionTile(
                     icon: Icons.campaign_rounded,
                     title: 'Mass message',
                     subtitle: 'Send PPV teaser to subscribers',
@@ -166,9 +176,9 @@ class CreatorHubScreen extends StatelessWidget {
                   ),
                 ],
               ),
-              DashboardSection(
+              const DashboardSection(
                 title: 'Recent Activity',
-                children: const [
+                children: [
                   ActivityRow(
                     icon: Icons.lock_open_rounded,
                     title: 'premium_clicks unlocked your post',

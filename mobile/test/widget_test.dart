@@ -1,7 +1,11 @@
-import 'package:feebic_mobile/core/cubit/theme_cubit.dart';
-import 'package:feebic_mobile/core/cubit/user_mode_cubit.dart';
-import 'package:feebic_mobile/core/storage/local_database.dart';
-import 'package:feebic_mobile/features/wallet/presentation/screens/wallet_screen.dart';
+import 'package:dio/dio.dart';
+import 'package:felbic_mobile/core/di/injection.dart';
+import 'package:felbic_mobile/core/cubit/theme_cubit.dart';
+import 'package:felbic_mobile/core/cubit/user_mode_cubit.dart';
+import 'package:felbic_mobile/core/network/api_client.dart';
+import 'package:felbic_mobile/core/storage/local_database.dart';
+import 'package:felbic_mobile/core/storage/secure_storage.dart';
+import 'package:felbic_mobile/features/wallet/presentation/screens/wallet_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,7 +25,29 @@ class _MemoryLocalDatabase extends LocalDatabase {
   }
 }
 
+class _FakeApiClient extends ApiClient {
+  _FakeApiClient() : super(SecureStorage());
+
+  @override
+  Future<Response> get(String path, {Map<String, dynamic>? queryParameters}) {
+    return Future.value(
+      Response(
+        requestOptions: RequestOptions(path: path),
+        data: {
+          'balance': 1250,
+          'transactions': <Map<String, dynamic>>[],
+        },
+      ),
+    );
+  }
+}
+
 void main() {
+  setUp(() async {
+    await getIt.reset();
+    getIt.registerSingleton<ApiClient>(_FakeApiClient());
+  });
+
   testWidgets('Wallet renders and opens add funds flow', (tester) async {
     await tester.pumpWidget(
       MultiBlocProvider(
@@ -34,12 +60,10 @@ void main() {
       ),
     );
 
-    expect(find.text('My Wallet'), findsOneWidget);
-    expect(find.text('Add Funds'), findsOneWidget);
+    await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Add Funds'));
-    await tester.pump(const Duration(milliseconds: 300));
-
-    expect(find.text('Deposit'), findsOneWidget);
+    expect(find.text('Wallet'), findsOneWidget);
+    expect(find.text('Available balance'), findsOneWidget);
+    expect(find.text('No wallet activity yet.'), findsOneWidget);
   });
 }

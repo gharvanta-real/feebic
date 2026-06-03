@@ -8,6 +8,10 @@ export default function OnboardingPage() {
   const router = useRouter();
   const { updateProfile, showToast } = useUser();
 
+  React.useEffect(() => {
+    router.replace("/");
+  }, [router]);
+
   // Onboarding States
   const [displayName, setDisplayName] = useState("Alex Rivera");
   const [username, setUsername] = useState("arivera");
@@ -28,8 +32,11 @@ export default function OnboardingPage() {
     "/assets/efcfd91838f89a7a1dcef9eac6ec0b56.png"
   ];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
     
     const cleanUsername = username.trim().toLowerCase().replace(/^@/, "").replace(/[^a-z0-9_]/g, "");
     if (displayName.trim().length < 2) {
@@ -41,8 +48,8 @@ export default function OnboardingPage() {
       return;
     }
 
-    // Save profile to database and complete onboarding
-    updateProfile({
+    setIsSaving(true);
+    const saved = await updateProfile({
       displayName: displayName.trim(),
       username: cleanUsername,
       bio: bio.trim(),
@@ -51,6 +58,9 @@ export default function OnboardingPage() {
       coverPhoto,
       joinedDate: `Joined ${new Date().toLocaleString("en-US", { month: "short", year: "numeric" })}`
     });
+
+    setIsSaving(false);
+    if (!saved) return;
 
     localStorage.setItem("ch_onboarding_done", "true");
     localStorage.setItem("ch_user_role", role);
@@ -218,9 +228,10 @@ export default function OnboardingPage() {
             {/* Submit Trigger */}
             <button
               type="submit"
+              disabled={isSaving}
               className="w-full py-3 bg-primary text-white hover:opacity-95 active:scale-[0.98] rounded-full font-bold text-sm shadow-md transition-all flex items-center justify-center gap-1 cursor-pointer select-none"
             >
-              <span>Initialize Profile</span>
+              <span>{isSaving ? "Saving Profile..." : "Initialize Profile"}</span>
               <span className="material-symbols-outlined text-[16px] leading-none">arrow_forward</span>
             </button>
           </form>

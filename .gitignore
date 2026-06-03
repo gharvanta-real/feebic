@@ -39,3 +39,18 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# logs, zips, archives
+*.log
+*.tar.gz
+*.zip
+eslint-report.json
+
+# server binaries
+/server/server_api
+/server/server_api_linux
+/server/server_api_linux_new
+/server/server_api_new
+/server/test_api.exe
+/server_api_linux_new
+/server_api_new

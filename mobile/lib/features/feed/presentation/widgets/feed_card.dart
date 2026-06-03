@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:feebic_mobile/features/shared/widgets/locked_content_card.dart';
-import 'package:feebic_mobile/features/shared/widgets/optimized_network_image.dart';
-import 'package:feebic_mobile/features/shared/widgets/user_avatar.dart';
-import 'package:feebic_mobile/features/shared/widgets/verified_badge.dart';
-import 'package:feebic_mobile/features/shared/widgets/video_player_card.dart';
-import '../../../../core/state/demo_app_state.dart';
+import 'package:dio/dio.dart';
+import 'package:felbic_mobile/features/shared/widgets/locked_content_card.dart';
+import 'package:felbic_mobile/features/shared/widgets/optimized_network_image.dart';
+import 'package:felbic_mobile/features/shared/widgets/user_avatar.dart';
+import 'package:felbic_mobile/features/shared/widgets/verified_badge.dart';
+import 'package:felbic_mobile/features/shared/widgets/video_player_card.dart';
+import '../../../../core/di/injection.dart';
+import '../../../../core/network/api_client.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -21,6 +23,8 @@ class FeedCard extends StatefulWidget {
     required this.likes,
     required this.comments,
     required this.postId,
+    required this.isLiked,
+    required this.isBookmarked,
     required this.onLikePressed,
     required this.onCommentPressed,
     required this.onUnlockPressed,
@@ -43,6 +47,8 @@ class FeedCard extends StatefulWidget {
   final int likes;
   final int comments;
   final String postId;
+  final bool isLiked;
+  final bool isBookmarked;
   final VoidCallback onLikePressed;
   final VoidCallback onCommentPressed;
   final VoidCallback onUnlockPressed;
@@ -57,7 +63,11 @@ class _FeedCardState extends State<FeedCard> {
   late int _commentsCount;
   late bool _isBookmarked;
   late bool _isLockedState;
-  final List<String> _comments = <String>[];
+  bool _isSubscribed = false;
+  bool _alertsEnabled = false;
+  final List<Map<String, dynamic>> _apiComments = <Map<String, dynamic>>[];
+  bool _isLoadingComments = false;
+  bool _commentsLoaded = false;
   final List<Key> _heartOverlayKeys = <Key>[];
 
   @override
@@ -65,21 +75,10 @@ class _FeedCardState extends State<FeedCard> {
     super.initState();
     _likesCount = widget.likes;
     _commentsCount = widget.comments;
-    _isLockedState = widget.isLocked &&
-        !DemoAppState.instance.unlockedPostIds.contains(widget.postId);
-    _isBookmarked = DemoAppState.instance.savedPostIds.contains(widget.postId);
-  }
-
-  double _priceValue() {
-    final label = widget.unlockPrice ?? 'Rs 399';
-    return double.tryParse(
-          label
-              .replaceAll('Rs ', '')
-              .replaceAll('\$', '')
-              .replaceAll(',', '')
-              .trim(),
-        ) ??
-        399;
+    _isLiked = widget.isLiked;
+    _isBookmarked = widget.isBookmarked;
+    _isLockedState = widget.isLocked;
+    // Comments are loaded lazily when user opens the sheet
   }
 
   void _openCreatorProfile() {
@@ -95,19 +94,108 @@ class _FeedCardState extends State<FeedCard> {
     );
   }
 
+  Future<void> _loadComments() async {
+    setState(() {
+      _isLoadingComments = true;
+    });
+    try {
+      final response =
+          await getIt<ApiClient>().get('/posts/${widget.postId}/comments');
+      if (response.statusCode == 200) {
+        final List<dynamic> data = response.data;
+        if (mounted) {
+          setState(() {
+            _apiComments.clear();
+            _apiComments
+                .addAll(data.map((e) => Map<String, dynamic>.from(e)).toList());
+            _commentsLoaded = true;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading comments: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingComments = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _submitComment(String text) async {
+    try {
+      final response = await getIt<ApiClient>().post(
+        '/posts/${widget.postId}/comments',
+        data: {'text': text},
+      );
+      if (response.statusCode == 201) {
+        final newComment = Map<String, dynamic>.from(response.data['comment']);
+        final newCount = response.data['comments_count'] as int;
+        if (mounted) {
+          setState(() {
+            _apiComments.add(newComment);
+            _commentsCount = newCount;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error submitting comment: $e');
+    }
+  }
+
+  Future<void> _toggleLike() async {
+    try {
+      final response =
+          await getIt<ApiClient>().post('/posts/${widget.postId}/like');
+      if (response.statusCode == 200) {
+        final data = response.data;
+        if (mounted) {
+          setState(() {
+            _isLiked = data['is_liked'] ?? !_isLiked;
+            _likesCount = data['likes'] ?? _likesCount;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error toggling like: $e');
+    }
+  }
+
+  Future<void> _toggleBookmark() async {
+    try {
+      final response =
+          await getIt<ApiClient>().post('/posts/${widget.postId}/bookmark');
+      if (response.statusCode == 200) {
+        final data = response.data;
+        if (mounted) {
+          setState(() {
+            _isBookmarked = data['is_bookmarked'] ?? !_isBookmarked;
+          });
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                _isBookmarked ? 'Saved to collection.' : 'Removed from saved.'),
+            duration: const Duration(seconds: 1),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error toggling bookmark: $e');
+    }
+  }
+
   void _triggerDoubleTapLike() {
     if (_isLockedState) {
       _showUnlockConfirmationDialog();
       return;
     }
     if (!_isLiked) {
-      setState(() {
-        _isLiked = true;
-        _likesCount += 1;
-      });
-      widget.onLikePressed();
+      _toggleLike();
     }
-    
+
     HapticFeedback.mediumImpact();
 
     final key = UniqueKey();
@@ -123,9 +211,54 @@ class _FeedCardState extends State<FeedCard> {
     });
   }
 
+  Future<void> _unlockContent() async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    try {
+      final response =
+          await getIt<ApiClient>().post('/posts/${widget.postId}/unlock');
+      if (response.statusCode == 200) {
+        if (mounted) {
+          setState(() {
+            _isLockedState = false;
+          });
+        }
+        widget.onUnlockPressed();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Content from @${widget.username} unlocked.'),
+            backgroundColor:
+                isDark ? AppColors.darkSuccess : AppColors.lightSuccess,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } on DioException catch (e) {
+      final errorMessage = e.response?.data?['error'] ?? 'Unlock failed';
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor:
+              isDark ? AppColors.darkAccent : AppColors.lightAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Unlock failed. Please try again.'),
+          backgroundColor:
+              isDark ? AppColors.darkAccent : AppColors.lightAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   void _showUnlockConfirmationDialog() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final price = _priceValue();
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -148,36 +281,7 @@ class _FeedCardState extends State<FeedCard> {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              final unlocked = DemoAppState.instance.unlockPost(
-                id: widget.postId,
-                price: price,
-                image: widget.imageUrl ?? '',
-                creator: widget.username,
-                caption: widget.caption,
-              );
-              if (!unlocked) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text(
-                        'Insufficient wallet balance. Add funds in Wallet.'),
-                    backgroundColor:
-                        isDark ? AppColors.darkAccent : AppColors.lightAccent,
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-                return;
-              }
-
-              setState(() => _isLockedState = false);
-              widget.onUnlockPressed();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Content from @${widget.username} unlocked.'),
-                  backgroundColor:
-                      isDark ? AppColors.darkSuccess : AppColors.lightSuccess,
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
+              _unlockContent();
             },
             child: Text(
               'Confirm',
@@ -218,9 +322,14 @@ class _FeedCardState extends State<FeedCard> {
               title: const Text('Turn on post alerts'),
               onTap: () {
                 Navigator.pop(context);
-                DemoAppState.instance.toggleAlerts(widget.username);
+                setState(() => _alertsEnabled = !_alertsEnabled);
                 ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Post alerts updated.')));
+                  SnackBar(
+                    content: Text(_alertsEnabled
+                        ? 'Post alerts enabled.'
+                        : 'Post alerts muted.'),
+                  ),
+                );
               },
             ),
             ListTile(
@@ -239,6 +348,10 @@ class _FeedCardState extends State<FeedCard> {
   }
 
   void _showCommentsSheet() {
+    // Lazy load: only fetch comments the first time the sheet is opened.
+    if (!_commentsLoaded && !_isLoadingComments) {
+      _loadComments();
+    }
     final controller = TextEditingController();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primary = isDark ? AppColors.darkPrimary : AppColors.lightPrimary;
@@ -258,184 +371,209 @@ class _FeedCardState extends State<FeedCard> {
           top: AppSpacing.sm,
           bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.md,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: AppSpacing.md),
-                decoration: BoxDecoration(
-                  color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                  borderRadius: BorderRadius.circular(2),
+        child: StatefulBuilder(builder: (context, setSheetState) {
+          Future<void> submitAndReload(String text) async {
+            HapticFeedback.lightImpact();
+            await _submitComment(text);
+            setSheetState(() {});
+          }
+
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: AppSpacing.md),
+                  decoration: BoxDecoration(
+                    color:
+                        isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Comments',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                Text(
-                  '$_commentsCount responses',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Comments',
+                      style:
+                          TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                  Text(
+                    '$_commentsCount responses',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
+                    ),
                   ),
-                ),
-              ],
-            ),
-            AppSpacing.gapSM,
-            const Divider(),
-            if (_comments.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 40),
-                child: Center(
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.chat_bubble_outline_rounded,
-                        size: 28,
-                        color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
-                      ),
-                      AppSpacing.gapSM,
-                      Text(
-                        'No comments yet.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Start the conversation below.',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 250),
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: _comments.length,
-                  itemBuilder: (context, index) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                ],
+              ),
+              AppSpacing.gapSM,
+              const Divider(),
+              if (_isLoadingComments)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 40),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_apiComments.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Center(
+                    child: Column(
                       children: [
-                        CircleAvatar(
-                          radius: 12,
-                          backgroundColor: isDark ? AppColors.darkBorder : AppColors.lightBorder,
-                          child: Icon(
-                            Icons.person,
-                            size: 12,
-                            color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
-                          ),
+                        Icon(
+                          Icons.chat_bubble_outline_rounded,
+                          size: 28,
+                          color: isDark
+                              ? AppColors.darkTextMuted
+                              : AppColors.lightTextMuted,
                         ),
                         AppSpacing.gapSM,
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  const Text(
-                                    'you',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'Just now',
-                                    style: TextStyle(
-                                      color: isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted,
-                                      fontSize: 9,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                _comments[index],
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                            ],
+                        Text(
+                          'No comments yet.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: isDark
+                                ? AppColors.darkTextMuted
+                                : AppColors.lightTextMuted,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Start the conversation below.',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isDark
+                                ? AppColors.darkTextMuted
+                                : AppColors.lightTextMuted,
                           ),
                         ),
                       ],
                     ),
                   ),
+                )
+              else
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 250),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _apiComments.length,
+                    itemBuilder: (context, index) {
+                      final comment = _apiComments[index];
+                      final username = comment['username'] ?? '';
+                      final displayName = comment['name'] ?? username;
+                      final commentText = comment['text'] ?? '';
+                      final avatar = comment['avatar'] ?? '';
+                      final timeStr = comment['time'] ?? 'Just now';
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            UserAvatar(
+                              imageUrl: avatar.isNotEmpty ? avatar : null,
+                              radius: 12,
+                            ),
+                            AppSpacing.gapSM,
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        displayName,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        timeStr.contains('T')
+                                            ? timeStr.split('T')[0]
+                                            : timeStr,
+                                        style: TextStyle(
+                                          color: isDark
+                                              ? AppColors.darkTextMuted
+                                              : AppColors.lightTextMuted,
+                                          fontSize: 9,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    commentText,
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 ),
-              ),
-            AppSpacing.gapSM,
-            Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: isDark ? AppColors.darkBorder.withOpacity(0.3) : AppColors.lightBorder.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-                    child: TextField(
-                      controller: controller,
-                      style: const TextStyle(fontSize: 13),
-                      decoration: const InputDecoration(
-                        hintText: 'Add a comment...',
-                        border: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(vertical: 8),
+              AppSpacing.gapSM,
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? AppColors.darkBorder.withOpacity(0.3)
+                            : AppColors.lightBorder.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                      child: TextField(
+                        controller: controller,
+                        style: const TextStyle(fontSize: 13),
+                        decoration: const InputDecoration(
+                          hintText: 'Add a comment...',
+                          border: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(vertical: 8),
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: Icon(Icons.send_rounded, color: primary),
-                  onPressed: () {
-                    final text = controller.text.trim();
-                    if (text.isEmpty) return;
-                    HapticFeedback.lightImpact();
-                    setState(() {
-                      _comments.add(text);
-                      _commentsCount += 1;
-                    });
-                    Navigator.pop(context);
-                    _showCommentsSheet();
-                    widget.onCommentPressed();
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: Icon(Icons.send_rounded, color: primary),
+                    onPressed: () async {
+                      final text = controller.text.trim();
+                      if (text.isEmpty) return;
+                      controller.clear();
+                      await submitAndReload(text);
+                    },
+                  ),
+                ],
+              ),
+            ],
+          );
+        }),
       ),
     );
   }
 
   void _toggleSubscribe() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final nowSubscribed =
-        DemoAppState.instance.toggleSubscribe(widget.username);
-    setState(() {});
+    setState(() => _isSubscribed = !_isSubscribed);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(nowSubscribed
+        content: Text(_isSubscribed
             ? 'Subscribed to @${widget.username}.'
             : 'Unsubscribed from @${widget.username}.'),
-        backgroundColor: nowSubscribed
+        backgroundColor: _isSubscribed
             ? (isDark ? AppColors.darkSuccess : AppColors.lightSuccess)
             : null,
         behavior: SnackBarBehavior.floating,
@@ -455,8 +593,7 @@ class _FeedCardState extends State<FeedCard> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final isSubscribed =
-        DemoAppState.instance.subscribedCreators.contains(widget.username);
+    final isSubscribed = _isSubscribed;
 
     return RepaintBoundary(
       child: ColoredBox(
@@ -562,11 +699,7 @@ class _FeedCardState extends State<FeedCard> {
                         size: 22),
                     onPressed: () {
                       HapticFeedback.lightImpact();
-                      setState(() {
-                        _isLiked = !_isLiked;
-                        _likesCount += _isLiked ? 1 : -1;
-                      });
-                      widget.onLikePressed();
+                      _toggleLike();
                     },
                   ),
                   Text('$_likesCount',
@@ -607,15 +740,8 @@ class _FeedCardState extends State<FeedCard> {
                                 : AppColors.lightTextMain),
                         size: 22),
                     onPressed: () {
-                      final isSaved =
-                          DemoAppState.instance.toggleSaved(widget.postId);
-                      setState(() => _isBookmarked = isSaved);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                            content: Text(isSaved
-                                ? 'Saved to collection.'
-                                : 'Removed from saved.')),
-                      );
+                      HapticFeedback.lightImpact();
+                      _toggleBookmark();
                     },
                   ),
                 ],
@@ -699,7 +825,8 @@ class SpringIconButton extends StatefulWidget {
   State<SpringIconButton> createState() => _SpringIconButtonState();
 }
 
-class _SpringIconButtonState extends State<SpringIconButton> with SingleTickerProviderStateMixin {
+class _SpringIconButtonState extends State<SpringIconButton>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scale;
 
@@ -749,7 +876,8 @@ class HeartPopOverlay extends StatefulWidget {
   State<HeartPopOverlay> createState() => _HeartPopOverlayState();
 }
 
-class _HeartPopOverlayState extends State<HeartPopOverlay> with SingleTickerProviderStateMixin {
+class _HeartPopOverlayState extends State<HeartPopOverlay>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scale;
   late Animation<double> _opacity;
@@ -762,9 +890,15 @@ class _HeartPopOverlayState extends State<HeartPopOverlay> with SingleTickerProv
       duration: const Duration(milliseconds: 550),
     );
     _scale = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.25).chain(CurveTween(curve: Curves.easeOutBack)), weight: 40),
+      TweenSequenceItem(
+          tween: Tween(begin: 0.0, end: 1.25)
+              .chain(CurveTween(curve: Curves.easeOutBack)),
+          weight: 40),
       TweenSequenceItem(tween: Tween(begin: 1.25, end: 1.0), weight: 30),
-      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0).chain(CurveTween(curve: Curves.easeIn)), weight: 30),
+      TweenSequenceItem(
+          tween: Tween(begin: 1.0, end: 0.0)
+              .chain(CurveTween(curve: Curves.easeIn)),
+          weight: 30),
     ]).animate(_controller);
 
     _opacity = TweenSequence<double>([

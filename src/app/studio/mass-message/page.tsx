@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { MobileHeader } from "@/components/layout/MobileHeader";
@@ -9,16 +9,18 @@ import { useUser } from "@/context/UserContext";
 import type { CustomList, VaultItem } from "@/lib/mockDb";
 import { Modal } from "@/components/ui/Modal";
 import { apiClient } from "@/lib/apiClient";
+import { uploadToCloudinary, validateVideoFile } from "@/lib/cloudinaryClient";
 
 export default function MassMessagePage() {
   const router = useRouter();
-  const { showToast } = useUser();
+  const { showToast, user } = useUser();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Composer state
   const [targetList, setTargetList] = useState("all");
   const [content, setContent] = useState("");
   const [isPPV, setIsPPV] = useState(false);
-  const [price, setPrice] = useState("14.99");
+  const [price, setPrice] = useState("499.00");
   
   // Attached files
   const [mediaUrl, setMediaUrl] = useState("");
@@ -30,6 +32,7 @@ export default function MassMessagePage() {
   const [vaultItems, setVaultItems] = useState<VaultItem[]>([]);
   const [isVaultOpen, setIsVaultOpen] = useState(false);
   const [isBroadcasting, setIsBroadcasting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     const fetchVault = async () => {
@@ -68,6 +71,41 @@ export default function MassMessagePage() {
     setFileName(item.name);
     setIsVaultOpen(false);
     showToast(`Attached ${item.name} from Vault`);
+  };
+
+  const handleLocalUpload = async (file?: File) => {
+    if (!file || !user) return;
+    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
+      showToast("Upload an image or video file");
+      return;
+    }
+
+    if (file.type.startsWith("video/")) {
+      showToast("Validating video file...");
+      const check = await validateVideoFile(file, {
+        maxDurationSeconds: 600, // 10 minutes
+        maxSizeBytes: 100 * 1024 * 1024, // 100 MB
+      });
+      if (!check.isValid) {
+        showToast(check.error || "Invalid video file");
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+    }
+
+    setIsUploading(true);
+    try {
+      const uploaded = await uploadToCloudinary(file, user.username, "chats");
+      setMediaUrl(uploaded.secure_url);
+      setMediaType(uploaded.resource_type === "video" ? "video" : "image");
+      setFileName(file.name);
+      showToast(`Attached ${file.name}`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const handleBroadcast = async (e: React.FormEvent) => {
@@ -148,7 +186,6 @@ export default function MassMessagePage() {
             <div>
               <label className="block text-[11px] font-bold text-text-muted uppercase tracking-wider mb-2 ml-1 select-none">Message Body Content</label>
               <textarea
-                required
                 rows={6}
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
@@ -209,12 +246,12 @@ export default function MassMessagePage() {
               {/* Price input */}
               {isPPV && (
                 <div className="bg-background border border-border p-4 rounded-xl space-y-2 animate-fade-in">
-                  <label className="block text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1">Set PPV Unlock Price (USD)</label>
+                  <label className="block text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1">Set PPV Unlock Price (INR)</label>
                   <div className="relative flex items-center bg-surface border border-border rounded-xl px-4 py-2 focus-within:border-primary transition-all">
-                    <span className="text-xs font-bold text-text-muted mr-1">$</span>
+                    <span className="text-xs font-bold text-text-muted mr-1">₹</span>
                     <input
                       type="number"
-                      step="0.01"
+                      step="1"
                       min="1"
                       required
                       value={price}
@@ -222,7 +259,7 @@ export default function MassMessagePage() {
                       disabled={isBroadcasting}
                       className="w-full text-xs font-bold bg-transparent outline-none text-text-main"
                     />
-                    <span className="text-[10px] font-bold text-text-muted">USD</span>
+                    <span className="text-[10px] font-bold text-text-muted">INR</span>
                   </div>
                 </div>
               )}
@@ -245,13 +282,20 @@ export default function MassMessagePage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => showToast("Local file selector simulation opened")}
-                  disabled={isBroadcasting}
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isBroadcasting || isUploading}
                   className="text-text-muted hover:text-primary transition-colors flex items-center justify-center cursor-pointer p-1"
                   title="Upload from Local"
                 >
-                  <span className="material-symbols-outlined text-[22px]">add_photo_alternate</span>
+                  <span className="material-symbols-outlined text-[22px]">{isUploading ? "hourglass_top" : "add_photo_alternate"}</span>
                 </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  className="hidden"
+                  onChange={(event) => handleLocalUpload(event.target.files?.[0])}
+                />
               </div>
 
               {/* Submit CTA */}

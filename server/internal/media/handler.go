@@ -19,15 +19,27 @@ func CloudinarySignature(c *fiber.Ctx) error {
 		})
 	}
 
+	username := c.Query("username")
+	folderType := c.Query("type")
+
+	folder := cfg.CloudinaryUploadFolder
+	if username != "" {
+		if folderType != "" {
+			folder = fmt.Sprintf("%s/%s/%s", folder, username, folderType)
+		} else {
+			folder = fmt.Sprintf("%s/%s", folder, username)
+		}
+	}
+
 	timestamp := time.Now().Unix()
-	stringToSign := fmt.Sprintf("folder=%s&timestamp=%d%s", cfg.CloudinaryUploadFolder, timestamp, cfg.CloudinaryAPISecret)
+	stringToSign := fmt.Sprintf("folder=%s&timestamp=%d%s", folder, timestamp, cfg.CloudinaryAPISecret)
 	sum := sha1.Sum([]byte(stringToSign))
 
 	return c.JSON(fiber.Map{
 		"cloud_name": cfg.CloudinaryCloudName,
 		"api_key":    cfg.CloudinaryAPIKey,
 		"timestamp":  timestamp,
-		"folder":     cfg.CloudinaryUploadFolder,
+		"folder":     folder,
 		"signature":  fmt.Sprintf("%x", sum),
 	})
 }

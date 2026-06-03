@@ -14,6 +14,12 @@ export const StorySlider: React.FC = () => {
   const [activeStory, setActiveStory] = useState<Story | null>(null);
   const [activeSlideIdx, setActiveSlideIdx] = useState(0);
   const [storyTimer, setStoryTimer] = useState<NodeJS.Timeout | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
+  const [slideStartTime, setSlideStartTime] = useState<number>(0);
+  const [remainingTime, setRemainingTime] = useState<number>(4000);
+  const [clickStartTime, setClickStartTime] = useState<number>(0);
+  const [storyMessage, setStoryMessage] = useState("");
+  const [isSendingStoryMessage, setIsSendingStoryMessage] = useState(false);
 
   const fetchStories = useCallback(async () => {
     try {
@@ -76,20 +82,75 @@ export const StorySlider: React.FC = () => {
     if (story.items?.[0]) {
       apiClient.post(`/stories/${story.items[0].id}/view`).catch(() => {});
     }
-    startTimer(0, story);
+    startTimer(0, story, 4000);
   };
 
   const handleCloseStory = () => {
     if (storyTimer) clearTimeout(storyTimer);
     setActiveStory(null);
+    setIsPaused(false);
+    setStoryMessage("");
   };
 
-  const startTimer = (slideIdx: number, story: Story) => {
+  const handleSendStoryMessage = async (event?: React.FormEvent) => {
+    event?.preventDefault();
+    if (!activeStory || isSendingStoryMessage) return;
+    const message = storyMessage.trim();
+    if (!message) return;
+
+    setIsSendingStoryMessage(true);
+    try {
+      await apiClient.post("/chat/messages", {
+        receiver_username: activeStory.username,
+        message,
+        media_url: "",
+        media_type: "",
+        is_ppv: false,
+        price: 0,
+      });
+      setStoryMessage("");
+      showToast(`Message sent to @${activeStory.username}`);
+      handleResume();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to send story message");
+    } finally {
+      setIsSendingStoryMessage(false);
+    }
+  };
+
+  const startTimer = (slideIdx: number, story: Story, duration: number = 4000) => {
     if (storyTimer) clearTimeout(storyTimer);
+    
+    setSlideStartTime(Date.now());
+    setRemainingTime(duration);
+    setIsPaused(false);
     
     const timer = setTimeout(() => {
       handleNextSlide(slideIdx, story);
-    }, 4000); // 4 seconds per story slide
+    }, duration);
+    
+    setStoryTimer(timer);
+  };
+
+  const handlePause = () => {
+    if (isPaused || !activeStory) return;
+    if (storyTimer) clearTimeout(storyTimer);
+    
+    const elapsed = Date.now() - slideStartTime;
+    const nextRemaining = Math.max(0, remainingTime - elapsed);
+    
+    setRemainingTime(nextRemaining);
+    setIsPaused(true);
+  };
+
+  const handleResume = () => {
+    if (!isPaused || !activeStory) return;
+    setIsPaused(false);
+    setSlideStartTime(Date.now());
+    
+    const timer = setTimeout(() => {
+      handleNextSlide(activeSlideIdx, activeStory);
+    }, remainingTime);
     
     setStoryTimer(timer);
   };
@@ -140,14 +201,14 @@ export const StorySlider: React.FC = () => {
   return (
     <>
       {/* 1. Horizontal Stories Slider bar */}
-      <div className="flex gap-4 overflow-x-auto rounded-3xl border border-border/60 bg-surface px-4 py-4 no-scrollbar select-none">
-        {/* 'Your Story' button - White circle with blue plus symbol (100% Screenshot replica) */}
+      <div className="flex gap-4 overflow-x-auto rounded-3xl bg-surface px-4 py-4 no-scrollbar select-none">
+        {/* 'Your Story' button - Simple circle with blue plus symbol without border */}
         {user && (
           <button
             onClick={handleAddStory}
             className="flex flex-col items-center focus:outline-none shrink-0 cursor-pointer"
           >
-            <div className="h-[62px] w-[62px] rounded-full border border-primary/20 bg-primary/5 flex items-center justify-center transition-transform duration-200 hover:scale-105 active:scale-95 relative">
+            <div className="h-[60px] w-[60px] rounded-full bg-primary/5 flex items-center justify-center transition-transform duration-200 hover:scale-105 active:scale-95 relative">
               <span className="material-symbols-outlined text-primary text-[22px] font-black leading-none">add</span>
             </div>
             <span className="text-[11px] font-semibold text-text-muted mt-2 select-none leading-none">
@@ -168,12 +229,12 @@ export const StorySlider: React.FC = () => {
               onClick={() => handleOpenStory(story)}
               className="flex flex-col items-center focus:outline-none shrink-0"
             >
-              {/* Avatar circle (100% Screenshot replica) */}
-              <div className="relative p-[1.5px] rounded-full bg-border transition-transform duration-200 hover:scale-105 active:scale-95">
+              {/* Avatar circle - Simple clean story circle without outer border outline */}
+              <div className="relative transition-transform duration-200 hover:scale-105 active:scale-95">
                 <img
                   src={story.avatar}
                   alt={story.name}
-                  className="h-[60px] w-[60px] rounded-full object-cover border border-surface"
+                  className="h-[60px] w-[60px] rounded-full object-cover"
                 />
               </div>
               
@@ -232,7 +293,10 @@ export const StorySlider: React.FC = () => {
                     }`}
                     style={
                       idx === activeSlideIdx
-                        ? { animation: "progress 4000ms linear forwards" }
+                        ? {
+                            animation: "progress 4000ms linear forwards",
+                            animationPlayState: isPaused ? "paused" : "running",
+                          }
                         : undefined
                     }
                   />
@@ -241,32 +305,89 @@ export const StorySlider: React.FC = () => {
             </div>
 
             {/* Slide Header metadata */}
-            <div className="absolute top-6 inset-x-4 z-30 flex items-center gap-3">
+            <a
+              href={`/profile?u=${activeStory.username}`}
+              onClick={handleCloseStory}
+              className="absolute top-6 inset-x-4 z-30 flex items-center gap-3 hover:opacity-90 cursor-pointer"
+            >
               <img
                 src={activeStory.avatar}
                 alt={activeStory.name}
                 className="h-9 w-9 rounded-full object-cover border border-white/20"
               />
               <div>
-                <p className="text-sm font-bold text-white leading-none mb-0.5">
+                <p className="text-sm font-bold text-white leading-none mb-0.5 flex items-center gap-1">
                   {activeStory.name}
+                  <VerifiedBadge size="xs" />
                 </p>
-                <p className="text-[10px] text-white/70 leading-none">
+                <p className="text-[10px] text-white/70 leading-none mt-0.5">
                   @{activeStory.username} • {activeStory.items[activeSlideIdx].time}
                   {activeStory.items[activeSlideIdx].location && ` • ${activeStory.items[activeSlideIdx].location}`}
                 </p>
               </div>
-            </div>
+            </a>
 
-            {/* Left/Right Click Nav Handlers (Mobile Tap Friendly) */}
+            {/* Left/Right Click Nav Handlers (Mobile Tap Friendly with instant pause/resume hold support) */}
             <div className="absolute inset-0 z-20 flex select-none">
               <div
                 className="flex-1 cursor-w-resize"
-                onClick={() => handlePrevSlide(activeSlideIdx, activeStory)}
+                onMouseDown={() => {
+                  setClickStartTime(Date.now());
+                  handlePause();
+                }}
+                onMouseUp={() => {
+                  const duration = Date.now() - clickStartTime;
+                  if (duration < 250) {
+                    handlePrevSlide(activeSlideIdx, activeStory);
+                  } else {
+                    handleResume();
+                  }
+                }}
+                onMouseLeave={() => {
+                  if (isPaused) handleResume();
+                }}
+                onTouchStart={() => {
+                  setClickStartTime(Date.now());
+                  handlePause();
+                }}
+                onTouchEnd={() => {
+                  const duration = Date.now() - clickStartTime;
+                  if (duration < 250) {
+                    handlePrevSlide(activeSlideIdx, activeStory);
+                  } else {
+                    handleResume();
+                  }
+                }}
               />
               <div
                 className="flex-1 cursor-e-resize"
-                onClick={() => handleNextSlide(activeSlideIdx, activeStory)}
+                onMouseDown={() => {
+                  setClickStartTime(Date.now());
+                  handlePause();
+                }}
+                onMouseUp={() => {
+                  const duration = Date.now() - clickStartTime;
+                  if (duration < 250) {
+                    handleNextSlide(activeSlideIdx, activeStory);
+                  } else {
+                    handleResume();
+                  }
+                }}
+                onMouseLeave={() => {
+                  if (isPaused) handleResume();
+                }}
+                onTouchStart={() => {
+                  setClickStartTime(Date.now());
+                  handlePause();
+                }}
+                onTouchEnd={() => {
+                  const duration = Date.now() - clickStartTime;
+                  if (duration < 250) {
+                    handleNextSlide(activeSlideIdx, activeStory);
+                  } else {
+                    handleResume();
+                  }
+                }}
               />
             </div>
 
@@ -276,6 +397,36 @@ export const StorySlider: React.FC = () => {
               alt="Story Content"
               className="w-full h-full object-cover select-none pointer-events-none"
             />
+
+            {/* Bottom Message and Like input bar (Instagram/OnlyFans style) */}
+            <form onSubmit={handleSendStoryMessage} className="absolute bottom-4 inset-x-4 z-30 flex items-center gap-3">
+              <div className="flex-1 h-9 rounded-full border border-white/40 bg-black/20 backdrop-blur-sm px-4 flex items-center">
+                <input
+                  type="text"
+                  placeholder="Send message..."
+                  value={storyMessage}
+                  onChange={(event) => setStoryMessage(event.target.value)}
+                  onFocus={handlePause}
+                  onBlur={() => {
+                    if (!storyMessage.trim()) handleResume();
+                  }}
+                  className="w-full bg-transparent text-xs text-white placeholder-white/75 focus:outline-none"
+                />
+              </div>
+              <button
+                className="text-white/80 hover:text-white cursor-pointer bg-transparent border-none flex items-center"
+                onClick={() => showToast("Liked story!")}
+              >
+                <span className="material-symbols-outlined text-[20px] font-semibold leading-none">favorite</span>
+              </button>
+              <button
+                type="submit"
+                disabled={isSendingStoryMessage || !storyMessage.trim()}
+                className="text-white/80 hover:text-white cursor-pointer flex items-center"
+              >
+                <span className="material-symbols-outlined text-[18px] font-semibold leading-none">send</span>
+              </button>
+            </form>
           </div>
 
           {/* Right Arrow (Desktop Navigation) */}

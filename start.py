@@ -1,58 +1,78 @@
 import os
-import sys
+import socket
 import subprocess
-import re
+import sys
 import time
+import urllib.request
+from pathlib import Path
 
-def free_port_3000():
-    print("🔍 Checking for active processes listening on port 3000...")
+
+ROOT = Path(__file__).resolve().parent
+SERVER_DIR = ROOT / "server"
+API_HEALTH_URL = "http://127.0.0.1:8081/api/health"
+
+
+def is_port_open(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex((host, port)) == 0
+
+
+def api_is_healthy() -> bool:
     try:
-        # Run netstat to find PIDs on port 3000
-        output = subprocess.check_output("netstat -ano", shell=True).decode("utf-8")
-        pids_to_kill = set()
-        
-        for line in output.splitlines():
-            # Look for lines containing port 3000
-            if ":3000 " in line or " 0.0.0.0:3000 " in line or " [::]:3000 " in line or " 127.0.0.1:3000 " in line:
-                tokens = line.strip().split()
-                if len(tokens) >= 5:
-                    pid = tokens[-1]
-                    # Ensure it is a valid process ID digit
-                    if pid.isdigit() and int(pid) > 0:
-                        pids_to_kill.add(pid)
-        
-        if not pids_to_kill:
-            print("✅ Port 3000 is already free and ready to use.")
-            return True
-            
-        print(f"⚠️ Found {len(pids_to_kill)} background process(es) holding port 3000: {', '.join(pids_to_kill)}")
-        
-        for pid in pids_to_kill:
-            print(f"💥 Terminating process PID {pid}...")
-            # Use Windows force taskkill
-            subprocess.run(f"taskkill /PID {pid} /F", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
-        # Give Windows a brief moment to release socket bindings
-        time.sleep(1)
-        print("🎉 Port 3000 successfully freed!")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Error while checking or freeing port 3000: {e}")
+        with urllib.request.urlopen(API_HEALTH_URL, timeout=2) as response:
+            return response.status == 200
+    except Exception:
         return False
 
-def start_next_server():
-    print("\n🚀 Launching fresh Next.js development server with Turbopack on port 3000...")
-    try:
-        # Launch dev server inside shell
-        subprocess.run("npm run dev", shell=True)
-    except KeyboardInterrupt:
-        print("\n👋 Server stopped by user.")
-    except Exception as e:
-        print(f"❌ Error while starting server: {e}")
+
+def start_api_server() -> subprocess.Popen | None:
+    if api_is_healthy():
+        print("api already healthy on http://127.0.0.1:8081")
+        return None
+
+    if is_port_open("127.0.0.1", 8081):
+        print("port 8081 is busy, but api health check failed")
+        print("close the stale process on 8081 or set NEXT_PUBLIC_API_BASE_URL to the remote api")
+        return None
+
+    exe = SERVER_DIR / "api.exe"
+    if exe.exists():
+        cmd = [str(exe)]
+    else:
+        cmd = ["go", "run", "./cmd/api"]
+
+    print("starting api on http://127.0.0.1:8081")
+    creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+    process = subprocess.Popen(
+        cmd,
+        cwd=SERVER_DIR,
+        creationflags=creationflags,
+    )
+
+    for _ in range(20):
+        if api_is_healthy():
+            print("api is ready")
+            return process
+        if process.poll() is not None:
+            print("api exited early; check server/.env and database connectivity")
+            return process
+        time.sleep(1)
+
+    print("api did not become healthy yet; next app will still use remote fallback if configured")
+    return process
+
+
+def start_next_server() -> int:
+    print("starting next on http://127.0.0.1:3000")
+    shell = os.name == "nt"
+    return subprocess.call(["npm", "run", "dev"], cwd=ROOT, shell=shell)
+
 
 if __name__ == "__main__":
-    # Ensure port is clean first
-    free_port_3000()
-    # Spin up fresh dev server
-    start_next_server()
+    api_process = start_api_server()
+    try:
+        sys.exit(start_next_server())
+    finally:
+        if api_process and api_process.poll() is None:
+            api_process.terminate()

@@ -4,6 +4,8 @@ import '../../../../core/cubit/theme_cubit.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_radius.dart';
+import '../../../../core/auth/auth_session.dart';
+import '../../../../core/di/injection.dart';
 import 'accounts_centre_screen.dart';
 import '../widgets/settings_tile.dart';
 import 'blocked_users_screen.dart';
@@ -12,6 +14,9 @@ import 'payout_setup_screen.dart';
 import 'subscription_tiers_screen.dart';
 import 'creator_hub_screen.dart';
 import 'visitor_hub_screen.dart';
+import 'kyc_verification_screen.dart';
+import 'delete_account_screen.dart';
+import 'referrals_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   final bool isCreatorMode;
@@ -111,6 +116,28 @@ class SettingsScreen extends StatelessWidget {
                   MaterialPageRoute(
                       builder: (_) => const SubscriptionTiersScreen())),
             ),
+            SettingsTile(
+              icon: Icons.group_add_rounded,
+              title: 'Referral Program',
+              subtitle: 'invite other creators and earn commissions',
+              isDark: isDark,
+              primaryColor: primary,
+              onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const ReferralsScreen())),
+            ),
+            SettingsTile(
+              icon: Icons.verified_rounded,
+              title: 'Identity Verification (KYC)',
+              subtitle: 'submit identification for payouts and verified badge',
+              isDark: isDark,
+              primaryColor: primary,
+              onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const KycVerificationScreen())),
+            ),
             AppSpacing.gapLG,
           ],
           _buildHeader('more info'),
@@ -121,6 +148,17 @@ class SettingsScreen extends StatelessWidget {
             isDark: isDark,
             primaryColor: primary,
             onTap: () {},
+          ),
+          SettingsTile(
+            icon: Icons.delete_forever_rounded,
+            title: 'Delete Account',
+            subtitle: 'permanently delete your profile and account',
+            isDark: isDark,
+            primaryColor: primary,
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const DeleteAccountScreen())),
           ),
           Center(
             child: TextButton(
@@ -240,13 +278,10 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 TextButton(
                   onPressed: () {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Simulated Logout: returning to guest session...'),
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
+                    Navigator.pop(context); // Close the dialog
+                    Navigator.pop(context); // Pop SettingsScreen to return to main navigation / auth gate
+                    
+                    getIt<AuthSession>().logout();
                   },
                   child: const Text(
                     'Log Out',

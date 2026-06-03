@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
-import 'package:feebic_mobile/features/shared/widgets/locked_content_card.dart';
+import 'package:felbic_mobile/features/shared/widgets/locked_content_card.dart';
 
 class ChatBubble extends StatefulWidget {
   final String text;
   final String time;
   final bool isMe;
   final bool isPpv;
+  final String? mediaUrl;
+  final String? mediaType;
   final String? ppvImageUrl;
   final String? ppvPrice;
   final VoidCallback? onPpvUnlockPressed;
@@ -19,6 +21,8 @@ class ChatBubble extends StatefulWidget {
     required this.time,
     required this.isMe,
     this.isPpv = false,
+    this.mediaUrl,
+    this.mediaType,
     this.ppvImageUrl,
     this.ppvPrice,
     this.onPpvUnlockPressed,
@@ -28,7 +32,8 @@ class ChatBubble extends StatefulWidget {
   State<ChatBubble> createState() => _ChatBubbleState();
 }
 
-class _ChatBubbleState extends State<ChatBubble> with SingleTickerProviderStateMixin {
+class _ChatBubbleState extends State<ChatBubble>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _slideAnimation;
   late Animation<double> _opacityAnimation;
@@ -70,14 +75,81 @@ class _ChatBubbleState extends State<ChatBubble> with SingleTickerProviderStateM
         ? Colors.white
         : (isDark ? AppColors.darkTextMain : AppColors.lightTextMain);
 
-    Widget body = Text(
-      widget.text,
-      style: TextStyle(
-        color: textColor,
-        fontSize: 13,
-        height: 1.35,
-      ),
-    );
+    final hasText = widget.text.trim().isNotEmpty;
+    final hasMedia = (widget.mediaUrl ?? '').isNotEmpty;
+
+    Widget? textBody;
+    if (hasText) {
+      textBody = Text(
+        widget.text,
+        style: TextStyle(
+          color: textColor,
+          fontSize: 13,
+          height: 1.35,
+        ),
+      );
+    }
+
+    Widget body = textBody ?? const SizedBox.shrink();
+
+    if (!widget.isPpv && hasMedia) {
+      final isAudio = widget.mediaType == 'audio';
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (isAudio)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.play_arrow_rounded,
+                    color: widget.isMe ? Colors.white : AppColors.lightPrimary),
+                Container(
+                  height: 3,
+                  width: 116,
+                  decoration: BoxDecoration(
+                    color: widget.isMe
+                        ? Colors.white54
+                        : AppColors.lightBorderStrong,
+                    borderRadius: AppRadius.rFull,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text('0:12',
+                    style: TextStyle(
+                      color: widget.isMe
+                          ? Colors.white70
+                          : AppColors.lightTextMuted,
+                      fontSize: 10,
+                    )),
+              ],
+            )
+          else
+            ClipRRect(
+              borderRadius: AppRadius.rSM,
+              child: Image.network(
+                widget.mediaUrl!,
+                width: 220,
+                height: 180,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  width: 220,
+                  height: 140,
+                  color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                  alignment: Alignment.center,
+                  child: Icon(Icons.broken_image_outlined,
+                      color: isDark
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted),
+                ),
+              ),
+            ),
+          if (textBody != null) ...[
+            AppSpacing.gapSM,
+            textBody,
+          ],
+        ],
+      );
+    }
 
     if (widget.isPpv && widget.ppvImageUrl != null) {
       body = Column(
@@ -132,8 +204,10 @@ class _ChatBubbleState extends State<ChatBubble> with SingleTickerProviderStateM
             borderRadius: BorderRadius.only(
               topLeft: const Radius.circular(AppRadius.md),
               topRight: const Radius.circular(AppRadius.md),
-              bottomLeft: Radius.circular(widget.isMe ? AppRadius.md : AppRadius.xs),
-              bottomRight: Radius.circular(widget.isMe ? AppRadius.xs : AppRadius.md),
+              bottomLeft:
+                  Radius.circular(widget.isMe ? AppRadius.md : AppRadius.xs),
+              bottomRight:
+                  Radius.circular(widget.isMe ? AppRadius.xs : AppRadius.md),
             ),
             boxShadow: widget.isMe
                 ? null

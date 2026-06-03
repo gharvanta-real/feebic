@@ -5,7 +5,7 @@ import 'core/cubit/theme_cubit.dart';
 import 'core/di/injection.dart';
 import 'core/storage/local_database.dart';
 import 'core/theme/app_theme.dart';
-import 'features/main_navigation_screen.dart';
+import 'features/auth/presentation/screens/auth_gate.dart';
 
 void main() async {
   // Ensure Flutter engine is initialized before running setups
@@ -42,7 +42,7 @@ class MyApp extends StatelessWidget {
             darkTheme: AppTheme.darkTheme,
             themeMode: themeMode,
 
-            home: const MainNavigationScreen(),
+            home: const AuthGate(),
           );
         },
       ),

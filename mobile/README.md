@@ -1,4 +1,4 @@
-# feebic_mobile
+# Felbic mobile
 
 A new Flutter project.
 

@@ -16,6 +16,7 @@
   --color-text-muted: var(--text-muted);
   
   --animate-fade-in: fadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  --animate-fade-in-pure: fadeInPure 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
 /* Global browser adjustments */
@@ -26,7 +27,6 @@ html, body {
   font-size: 15px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
   transition: background-color var(--transition-normal), color var(--transition-normal);
 }
 
@@ -98,6 +98,48 @@ button:hover .material-symbols-outlined,
   border-color: var(--border);
 }
 
+.auth-input {
+  border-color: #d8e2ee !important;
+}
+
+.auth-input:hover {
+  border-color: #b8c7d8 !important;
+}
+
+.auth-input:focus {
+  border-color: #38bdf8 !important;
+}
+
+.auth-step-current {
+  border-color: #0ea5e9 !important;
+}
+
+.auth-step-done {
+  border-color: #e0f2fe !important;
+}
+
+.auth-step-idle,
+.auth-soft-button {
+  border-color: #e2e8f0 !important;
+}
+
+.auth-step-idle:hover,
+.auth-soft-button:hover {
+  border-color: #bae6fd !important;
+}
+
+.auth-role-active {
+  border-color: #bae6fd !important;
+}
+
+.auth-role-idle {
+  border-color: #e2e8f0 !important;
+}
+
+.auth-role-idle:hover {
+  border-color: #bae6fd !important;
+}
+
 .shadow-sm,
 .shadow-md,
 .shadow-lg,
@@ -136,8 +178,10 @@ button:hover .material-symbols-outlined,
 .app-shell {
   display: flex;
   min-height: 100vh;
-  width: 100vw;
+  width: 100%;
+  max-width: 100%;
   background-color: var(--background);
+  overflow-x: clip;
 }
 
 .main-content {
@@ -189,6 +233,11 @@ button:hover .material-symbols-outlined,
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInPure {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* Mobile responsive resets */
@@ -304,189 +353,4 @@ video:not(.rounded-full) {
 
 .bg-radial-glow {
   background: radial-gradient(circle at 50% 50%, hsla(var(--primary-hsl) / 0.08) 0%, transparent 70%);
-}
-
-/* Premium Clerk Auth UI Style Overrides */
-.cl-rootBox {
-  width: 100%;
-}
-
-.cl-card {
-  background-color: var(--surface) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 28px !important;
-  box-shadow: var(--clerk-card-shadow) !important;
-  padding: 32px 28px !important;
-  width: 100% !important;
-  max-width: 440px !important;
-  margin: 0 auto;
-}
-
-.cl-header {
-  margin-bottom: 24px !important;
-}
-
-.cl-headerTitle {
-  color: var(--text-main) !important;
-  font-family: var(--font-sans) !important;
-  font-weight: 800 !important;
-  font-size: 22px !important;
-  letter-spacing: -0.03em !important;
-  margin-bottom: 4px !important;
-}
-
-.cl-headerSubtitle {
-  color: var(--text-muted) !important;
-  font-family: var(--font-sans) !important;
-  font-weight: 600 !important;
-  font-size: 13px !important;
-  line-height: 1.4 !important;
-}
-
-.cl-socialButtons {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 10px !important;
-}
-
-.cl-socialButtonsBlockButton {
-  border: 1px solid var(--border) !important;
-  background-color: transparent !important;
-  border-radius: 9999px !important;
-  height: 44px !important;
-  transition: all var(--transition-fast) !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  cursor: pointer !important;
-}
-
-.cl-socialButtonsBlockButton:hover {
-  background-color: hsl(var(--border-hsl) / 0.15) !important;
-  border-color: var(--text-muted) !important;
-}
-
-.cl-socialButtonsBlockButtonText {
-  color: var(--text-main) !important;
-  font-family: var(--font-sans) !important;
-  font-weight: 700 !important;
-  font-size: 13px !important;
-}
-
-.cl-dividerRow {
-  margin: 20px 0 !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-}
-
-.cl-dividerText {
-  color: var(--text-muted) !important;
-  font-size: 10px !important;
-  font-weight: 800 !important;
-  text-transform: uppercase !important;
-  letter-spacing: 0.12em !important;
-  padding: 0 12px !important;
-}
-
-.cl-dividerLine {
-  background-color: var(--border) !important;
-  height: 1px !important;
-  flex-grow: 1 !important;
-}
-
-.cl-form {
-  gap: 16px !important;
-}
-
-.cl-formField {
-  margin-bottom: 12px !important;
-}
-
-.cl-formFieldLabel {
-  color: var(--text-main) !important;
-  font-family: var(--font-sans) !important;
-  font-weight: 700 !important;
-  font-size: 12px !important;
-  margin-bottom: 6px !important;
-  margin-left: 2px !important;
-}
-
-.cl-formFieldInput {
-  background-color: hsl(var(--background-hsl) / 0.4) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 12px !important;
-  padding: 10px 14px !important;
-  font-size: 13px !important;
-  color: var(--text-main) !important;
-  outline: none !important;
-  transition: all var(--transition-fast) !important;
-  width: 100% !important;
-}
-
-.cl-formFieldInput:focus {
-  border-color: var(--primary) !important;
-  background-color: var(--background) !important;
-}
-
-.cl-formFieldInputRow {
-  position: relative !important;
-}
-
-.cl-formFieldAction {
-  color: var(--primary) !important;
-  font-family: var(--font-sans) !important;
-  font-weight: 700 !important;
-  font-size: 12px !important;
-}
-
-.cl-formFieldAction:hover {
-  text-decoration: underline !important;
-}
-
-.cl-formButtonPrimary {
-  background-color: var(--primary) !important;
-  color: #ffffff !important;
-  border-radius: 9999px !important;
-  padding: 11px 20px !important;
-  font-family: var(--font-sans) !important;
-  font-weight: 800 !important;
-  font-size: 13px !important;
-  text-transform: none !important;
-  transition: all var(--transition-fast) !important;
-  box-shadow: none !important;
-  cursor: pointer !important;
-  width: 100% !important;
-  margin-top: 6px !important;
-}
-
-.cl-formButtonPrimary:hover {
-  background-color: var(--primary-hover) !important;
-}
-
-.cl-footer {
-  background-color: transparent !important;
-  margin-top: 16px !important;
-}
-
-.cl-footerActionText {
-  color: var(--text-muted) !important;
-  font-family: var(--font-sans) !important;
-  font-size: 13px !important;
-  font-weight: 600 !important;
-}
-
-.cl-footerActionLink {
-  color: var(--primary) !important;
-  font-family: var(--font-sans) !important;
-  font-weight: 700 !important;
-  font-size: 13px !important;
-}
-
-.cl-footerActionLink:hover {
-  text-decoration: underline !important;
-}
-
-.cl-internal-b3826t {
-  display: none !important; /* Hide standard Clerk branding link if needed */
 }

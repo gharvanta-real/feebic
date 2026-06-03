@@ -239,7 +239,7 @@ export default function BookmarkedCollectionsPage() {
                               lock
                             </span>
                             <span className="text-[10px] font-black text-white/90 bg-black/40 px-2.5 py-1 rounded-full tracking-wider shadow-sm">
-                              Unlock ${post.price}
+                              Unlock ₹{post.price}
                             </span>
                           </div>
                         </>

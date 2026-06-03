@@ -4,10 +4,12 @@ import '../../../../core/state/demo_app_state.dart';
 
 class WalletCreditCard extends StatelessWidget {
   final bool isDark;
+  final Map<String, dynamic>? cardData;
 
   const WalletCreditCard({
     super.key,
     required this.isDark,
+    this.cardData,
   });
 
   @override
@@ -16,6 +18,16 @@ class WalletCreditCard extends StatelessWidget {
     final cardColors = isDark
         ? [AppColors.darkPrimary, AppColors.darkAccent.withOpacity(0.6)]
         : [AppColors.lightPrimary, Colors.blueGrey.shade800];
+
+    final holder = cardData != null
+        ? (cardData!['holder']?.toString() ?? '').toUpperCase()
+        : state.fanName.toUpperCase();
+    final number = cardData != null
+        ? cardData!['number']?.toString() ?? '**** **** **** 1982'
+        : '**** **** **** 1982';
+    final expiry = cardData != null
+        ? cardData!['expiry']?.toString() ?? '12/29'
+        : '12/29';
 
     return Container(
       height: 180,
@@ -97,8 +109,8 @@ class WalletCreditCard extends StatelessWidget {
                     ],
                   ),
                   const Spacer(),
-                  const Text('**** **** **** 1982',
-                      style: TextStyle(
+                  Text(number,
+                      style: const TextStyle(
                           color: Colors.white,
                           fontSize: 18,
                           letterSpacing: 2,
@@ -113,21 +125,21 @@ class WalletCreditCard extends StatelessWidget {
                           const Text('card holder',
                               style: TextStyle(color: Colors.white54, fontSize: 8)),
                           const SizedBox(height: 2),
-                          Text(state.fanName.toUpperCase(),
+                          Text(holder,
                               style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold)),
                         ],
                       ),
-                      const Column(
+                      Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('expiry',
+                          const Text('expiry',
                               style: TextStyle(color: Colors.white54, fontSize: 8)),
-                          SizedBox(height: 2),
-                          Text('12/29',
-                              style: TextStyle(
+                          const SizedBox(height: 2),
+                          Text(expiry,
+                              style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold)),

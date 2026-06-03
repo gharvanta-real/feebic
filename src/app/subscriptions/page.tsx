@@ -310,7 +310,7 @@ export default function SubscriptionsPage() {
                         )}
                       </div>
                       <p className="text-[10px] text-text-muted font-bold">@{creator.username}</p>
-                      <p className="text-xs text-text-main line-clamp-1 leading-relaxed mt-1 font-medium">{creator.bio}</p>
+                      <p className="text-xs text-text-main line-clamp-1 leading-relaxed mt-1 font-medium whitespace-pre-wrap">{creator.bio}</p>
                     </div>
                   </div>
                 ))}

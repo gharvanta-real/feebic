@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_radius.dart';
+import '../../../../core/di/injection.dart';
+import '../../../../core/network/api_client.dart';
 import '../../../../core/state/demo_app_state.dart';
-import 'package:feebic_mobile/features/shared/widgets/user_avatar.dart';
-import 'package:feebic_mobile/features/shared/widgets/verified_badge.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_radius.dart';
+import '../../../../core/theme/app_spacing.dart';
+import 'package:felbic_mobile/features/shared/widgets/user_avatar.dart';
+import 'package:felbic_mobile/features/shared/widgets/verified_badge.dart';
 import '../widgets/chat_bubble.dart';
 
 class ChatDetailsScreen extends StatefulWidget {
@@ -25,30 +27,21 @@ class _ChatDetailsScreenState extends State<ChatDetailsScreen> {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
-  final List<Map<String, dynamic>> _messages = [
-    {
-      'text': 'Thank you for subscribing! ',
-      'time': '1:12 PM',
-      'isMe': false,
-      'isPpv': false,
-    },
-    {
-      'text':
-          'Hey! I would love to see some behind the scenes content of your workouts.',
-      'time': '1:30 PM',
-      'isMe': true,
-      'isPpv': false,
-    },
-    {
-      'text': 'Check out this exclusive custom video I made for you! ',
-      'time': '1:45 PM',
-      'isMe': false,
-      'isPpv': true,
-      'ppvImageUrl':
-          'https://images.unsplash.com/photo-1518770660439-4636190af475',
-      'ppvPrice': 'Rs 1,299',
-    },
-  ];
+  bool _isLoading = true;
+  bool _isSending = false;
+  bool _isBlocked = false;
+  bool _isPpv = false;
+  final double _ppvPrice = 699;
+  String? _pendingMediaUrl;
+  String? _pendingMediaType;
+
+  List<Map<String, dynamic>> _messages = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMessages();
+  }
 
   @override
   void dispose() {
@@ -57,67 +50,155 @@ class _ChatDetailsScreenState extends State<ChatDetailsScreen> {
     super.dispose();
   }
 
-  void _sendMessage() {
+  Future<void> _loadMessages() async {
+    setState(() => _isLoading = true);
+    try {
+      final response =
+          await getIt<ApiClient>().get('/chat/messages/${widget.username}');
+      final data = response.data is List ? response.data as List : <dynamic>[];
+      if (!mounted) return;
+      setState(() {
+        _messages = data.whereType<Map>().map((item) {
+          final msg = Map<String, dynamic>.from(item);
+          msg['mediaUrl'] =
+              ApiClient.resolveUrl((msg['mediaUrl'] ?? '').toString());
+          return msg;
+        }).toList();
+      });
+      _scrollToBottom();
+    } catch (e) {
+      debugPrint('error loading messages: $e');
+      if (!mounted) return;
+      setState(() {
+        _messages = _fallbackMessages();
+      });
+      _scrollToBottom();
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  List<Map<String, dynamic>> _fallbackMessages() {
+    return [
+      {
+        'id': 'demo_1',
+        'sender': widget.username,
+        'text': 'thank you for subscribing',
+        'time': '13:12',
+        'mediaUrl': '',
+        'mediaType': '',
+        'isPPV': false,
+        'price': 0,
+        'isUnlocked': true,
+      },
+      {
+        'id': 'demo_2',
+        'sender': 'user',
+        'text': 'hey, send me the behind the scenes clip',
+        'time': '13:30',
+        'mediaUrl': '',
+        'mediaType': '',
+        'isPPV': false,
+        'price': 0,
+        'isUnlocked': true,
+      },
+      {
+        'id': 'demo_3',
+        'sender': widget.username,
+        'text': 'private media is ready',
+        'time': '13:45',
+        'mediaUrl':
+            'https://images.unsplash.com/photo-1518770660439-4636190af475?w=900',
+        'mediaType': 'image',
+        'isPPV': true,
+        'price': 1299,
+        'isUnlocked': false,
+      },
+    ];
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  Future<void> _sendMessage() async {
     final text = _textController.text.trim();
-    if (text.isEmpty) return;
+    if (_isSending ||
+        _isBlocked ||
+        (text.isEmpty && _pendingMediaUrl == null)) {
+      return;
+    }
+
+    setState(() => _isSending = true);
+    final localMessage = {
+      'id': 'local_${DateTime.now().millisecondsSinceEpoch}',
+      'sender': 'user',
+      'text': text,
+      'time': 'now',
+      'mediaUrl': _pendingMediaUrl ?? '',
+      'mediaType': _pendingMediaType ?? '',
+      'isPPV': _isPpv,
+      'price': _isPpv ? _ppvPrice : 0,
+      'isUnlocked': true,
+    };
 
     setState(() {
-      _messages.add({
-        'text': text,
-        'time': 'Just now',
-        'isMe': true,
-        'isPpv': false,
-      });
+      _messages.add(localMessage);
+      _textController.clear();
+      _pendingMediaUrl = null;
+      _pendingMediaType = null;
+      _isPpv = false;
     });
+    _scrollToBottom();
 
-    _textController.clear();
-
-    // Scroll to the bottom of the list after the new message compiles
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-    });
+    try {
+      await getIt<ApiClient>().post(
+        '/chat/messages',
+        data: {
+          'receiver_username': widget.username,
+          'message': text,
+          'media_url': localMessage['mediaUrl'],
+          'media_type': localMessage['mediaType'],
+          'is_ppv': localMessage['isPPV'],
+          'price': localMessage['price'],
+        },
+      );
+      await _loadMessages();
+    } catch (e) {
+      debugPrint('error sending message: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('message saved locally, server is not reachable')),
+      );
+    } finally {
+      if (mounted) setState(() => _isSending = false);
+    }
   }
 
   void _attachImageMessage() {
     setState(() {
-      _messages.add({
-        'text': 'Image attachment sent.',
-        'time': 'Just now',
-        'isMe': true,
-        'isPpv': false,
-      });
+      _pendingMediaUrl =
+          'https://images.unsplash.com/photo-1518611012118-696072aa579a?w=900';
+      _pendingMediaType = 'image';
     });
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Image attached to chat.')));
   }
 
-  void _createPaidMessage() {
-    setState(() {
-      _messages.add({
-        'text': 'Premium media offer created. Unlock price: Rs 699',
-        'time': 'Just now',
-        'isMe': true,
-        'isPpv': true,
-        'ppvImageUrl':
-            'https://images.unsplash.com/photo-1518611012118-696072aa579a',
-        'ppvPrice': 'Rs 699',
-      });
-    });
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Paid message added.')));
+  void _togglePpv() {
+    setState(() => _isPpv = !_isPpv);
   }
 
   void _showChatInfo(BuildContext context, bool isDark) {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+      shape: const RoundedRectangleBorder(borderRadius: AppRadius.topLG),
       builder: (context) => SafeArea(
         child: ListView(
           shrinkWrap: true,
@@ -128,39 +209,35 @@ class _ChatDetailsScreenState extends State<ChatDetailsScreen> {
                 UserAvatar(imageUrl: widget.avatarUrl, radius: 24),
                 AppSpacing.gapSM,
                 Expanded(
-                  child: Text(widget.username,
+                  child: Text('@${widget.username}',
                       style: const TextStyle(
                           fontWeight: FontWeight.bold, fontSize: 16)),
                 ),
+                const VerifiedBadge(size: 16),
               ],
             ),
             AppSpacing.gapMD,
             ListTile(
               leading: const Icon(Icons.notifications_active_outlined),
-              title: const Text('Mute notifications'),
-              onTap: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text('Notifications muted for this chat.')));
-              },
+              title: const Text('mute notifications'),
+              onTap: () => Navigator.pop(context),
             ),
             ListTile(
-              leading: const Icon(Icons.attach_money_rounded),
-              title: const Text('Send tip'),
+              leading: const Icon(Icons.payments_outlined),
+              title: const Text('send tip'),
               onTap: () {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Tip sheet opened.')));
+                    const SnackBar(content: Text('tip sheet opened')));
               },
             ),
             ListTile(
               leading: Icon(Icons.block_rounded,
                   color: isDark ? AppColors.darkAccent : AppColors.lightAccent),
-              title: const Text('Block user'),
+              title: Text(_isBlocked ? 'unblock account' : 'block account'),
               onTap: () {
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('User blocked.')));
+                setState(() => _isBlocked = !_isBlocked);
               },
             ),
           ],
@@ -169,74 +246,144 @@ class _ChatDetailsScreenState extends State<ChatDetailsScreen> {
     );
   }
 
+  void _showCallSheet(bool isVideo) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog.fullscreen(
+        backgroundColor: Colors.black,
+        child: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: AppSpacing.pAllMD,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(isVideo ? 'secure video call' : 'secure voice call',
+                        style: const TextStyle(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.bold)),
+                    const Text('00:00',
+                        style: TextStyle(
+                            color: AppColors.lightPrimary,
+                            fontFamily: 'monospace')),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: isVideo
+                    ? Row(
+                        children: [
+                          Expanded(
+                              child:
+                                  _callPane(widget.avatarUrl, widget.username)),
+                          Expanded(child: _callPane('', 'you')),
+                        ],
+                      )
+                    : Center(
+                        child: _callPane(widget.avatarUrl, widget.username,
+                            compact: true)),
+              ),
+              Padding(
+                padding: AppSpacing.pAllLG,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _roundCallButton(
+                        Icons.mic_outlined, Colors.white12, Colors.white),
+                    AppSpacing.gapMD,
+                    _roundCallButton(
+                        Icons.call_end_rounded, Colors.red, Colors.white,
+                        onPressed: () => Navigator.pop(context), size: 60),
+                    AppSpacing.gapMD,
+                    _roundCallButton(
+                      isVideo
+                          ? Icons.videocam_outlined
+                          : Icons.volume_up_outlined,
+                      Colors.white12,
+                      Colors.white,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _callPane(String avatar, String label, {bool compact = false}) {
+    return Container(
+      margin: compact ? EdgeInsets.zero : const EdgeInsets.all(1),
+      color: const Color(0xFF111827),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            UserAvatar(imageUrl: avatar, radius: compact ? 52 : 42),
+            AppSpacing.gapSM,
+            Text(label,
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _roundCallButton(
+    IconData icon,
+    Color background,
+    Color foreground, {
+    VoidCallback? onPressed,
+    double size = 52,
+  }) {
+    return SizedBox(
+      height: size,
+      width: size,
+      child: IconButton.filled(
+        style: IconButton.styleFrom(
+            backgroundColor: background, foregroundColor: foreground),
+        onPressed: onPressed ?? () {},
+        icon: Icon(icon),
+      ),
+    );
+  }
+
   void _showUnlockConfirmationDialog(BuildContext context, int index) {
     final msg = _messages[index];
+    final price = (msg['price'] as num?)?.toDouble() ?? 0;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         shape: const RoundedRectangleBorder(borderRadius: AppRadius.rMD),
-        title: const Text('Unlock Media Message',
+        title: const Text('unlock media',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         content: Text(
-          'Confirm payment of ${msg["ppvPrice"]} to unlock this private video message from @${widget.username}?',
-          style: const TextStyle(fontSize: 13, height: 1.4),
-        ),
+            'unlock this private message from @${widget.username} for rs ${price.toStringAsFixed(0)}?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel',
-                style: TextStyle(color: AppColors.lightTextMuted)),
-          ),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('cancel')),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              final priceStr = msg['ppvPrice'] as String? ?? '0';
-              final cleanPriceStr = priceStr.replaceAll(RegExp(r'[^0-9.]'), '');
-              final price = double.tryParse(cleanPriceStr) ?? 0.0;
-
-              final appState = DemoAppState.instance;
-              if (appState.fanBalance < price) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Insufficient wallet funds'),
-                    backgroundColor: AppColors.lightAccent,
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-                return;
-              }
-
-              final success = appState.unlockPpvMessage(
+              final success = DemoAppState.instance.unlockPpvMessage(
                 '${widget.username}_msg_$index',
                 price,
                 widget.username,
               );
-
-              if (success) {
-                setState(() {
-                  _messages[index]['isPpv'] = false; // Unlock PPV media
-                });
+              if (!success) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Media message unlocked! '),
-                    backgroundColor: AppColors.lightSuccess,
-                    behavior: SnackBarBehavior.floating,
-                  ),
+                  const SnackBar(content: Text('insufficient wallet funds')),
                 );
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Insufficient wallet funds'),
-                    backgroundColor: AppColors.lightAccent,
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
+                return;
               }
+              setState(() => _messages[index]['isUnlocked'] = true);
             },
-            child: const Text('Unlock',
-                style: TextStyle(
-                    color: AppColors.lightPrimary,
-                    fontWeight: FontWeight.bold)),
+            child: const Text('unlock',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -247,7 +394,6 @@ class _ChatDetailsScreenState extends State<ChatDetailsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-
     final chatBackground =
         isDark ? const Color(0xFF0F1420) : const Color(0xFFF8FAFC);
 
@@ -277,48 +423,60 @@ class _ChatDetailsScreenState extends State<ChatDetailsScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.call_outlined, size: 20),
-            onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Calling ${widget.username}...')),
-            ),
-            color: isDark ? AppColors.darkTextMain : AppColors.lightTextMain,
+            onPressed: () => _showCallSheet(false),
+          ),
+          IconButton(
+            icon: const Icon(Icons.videocam_outlined, size: 21),
+            onPressed: () => _showCallSheet(true),
           ),
           IconButton(
             icon: const Icon(Icons.info_outline, size: 20),
             onPressed: () => _showChatInfo(context, isDark),
-            color: isDark ? AppColors.darkTextMain : AppColors.lightTextMain,
           ),
         ],
       ),
       body: Column(
         children: [
-          // Chat list
           Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: AppSpacing.pAllMD,
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final msg = _messages[index];
-                final isLocked = msg['isPpv'] == true &&
-                    !DemoAppState.instance.unlockedMessageIds
-                        .contains('${widget.username}_msg_$index');
-                return ChatBubble(
-                  text: msg['text'] as String,
-                  time: msg['time'] as String,
-                  isMe: msg['isMe'] as bool,
-                  isPpv: isLocked,
-                  ppvImageUrl: isLocked
-                      ? 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=50&auto=format&fit=crop&q=10'
-                      : msg['ppvImageUrl'] as String?,
-                  ppvPrice: msg['ppvPrice'] as String?,
-                  onPpvUnlockPressed: () =>
-                      _showUnlockConfirmationDialog(context, index),
-                );
-              },
-            ),
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : RefreshIndicator(
+                    onRefresh: _loadMessages,
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.md,
+                        AppSpacing.md,
+                        AppSpacing.md,
+                        AppSpacing.lg,
+                      ),
+                      itemCount: _messages.length,
+                      itemBuilder: (context, index) {
+                        final msg = _messages[index];
+                        final isMe = (msg['sender'] ?? '') == 'user';
+                        final isLocked = msg['isPPV'] == true &&
+                            msg['isUnlocked'] != true &&
+                            !DemoAppState.instance.unlockedMessageIds
+                                .contains('${widget.username}_msg_$index');
+                        return ChatBubble(
+                          text: (msg['text'] ?? '').toString(),
+                          time: (msg['time'] ?? '').toString(),
+                          isMe: isMe,
+                          isPpv: isLocked,
+                          mediaUrl: (msg['mediaUrl'] ?? '').toString(),
+                          mediaType: (msg['mediaType'] ?? '').toString(),
+                          ppvImageUrl: isLocked
+                              ? 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=80&auto=format&fit=crop&q=10'
+                              : (msg['mediaUrl'] ?? '').toString(),
+                          ppvPrice:
+                              'rs ${((msg['price'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                          onPpvUnlockPressed: () =>
+                              _showUnlockConfirmationDialog(context, index),
+                        );
+                      },
+                    ),
+                  ),
           ),
-
-          // Floating Input Dock
           _buildMessageInput(context, isDark),
         ],
       ),
@@ -326,90 +484,150 @@ class _ChatDetailsScreenState extends State<ChatDetailsScreen> {
   }
 
   Widget _buildMessageInput(BuildContext context, bool isDark) {
+    final mutedColor =
+        isDark ? AppColors.darkTextMuted : AppColors.lightTextMuted;
+
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
-          decoration: BoxDecoration(
-            color: isDark ? AppColors.darkBackground : AppColors.white,
-            borderRadius: AppRadius.rLG,
-            border: Border.all(
-              color: isDark
-                  ? AppColors.darkBorder
-                  : AppColors.lightBorder.withOpacity(0.5),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(isDark ? 0.15 : 0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.sm, AppSpacing.xs, AppSpacing.sm, AppSpacing.sm),
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkBackground : AppColors.white,
+          border: Border(
+            top: BorderSide(
+                color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
           ),
-          child: Row(
-            children: [
-              IconButton(
-                icon: Icon(
-                  Icons.image_outlined,
-                  color: isDark
-                      ? AppColors.darkTextMuted
-                      : AppColors.lightTextMuted,
-                  size: 22,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_pendingMediaUrl != null || _isPpv)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: AppSpacing.xs),
+                padding: AppSpacing.pAllXS,
+                decoration: BoxDecoration(
+                  color:
+                      isDark ? AppColors.darkBorder : const Color(0xFFF1F5F9),
+                  borderRadius: AppRadius.rMD,
                 ),
-                onPressed: _attachImageMessage,
-              ),
-              IconButton(
-                icon: const Icon(
-                  Icons.lock_outline_rounded,
-                  color: AppColors.lightAccent,
-                  size: 22,
-                ),
-                onPressed: _createPaidMessage,
-              ),
-              AppSpacing.gapSM,
-              Expanded(
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? AppColors.darkBorder
-                        : AppColors.lightBorder.withOpacity(0.2),
-                    borderRadius: AppRadius.rMD,
-                  ),
-                  child: TextField(
-                    controller: _textController,
-                    onSubmitted: (_) => _sendMessage(),
-                    style: TextStyle(
-                      color: isDark
-                          ? AppColors.darkTextMain
-                          : AppColors.lightTextMain,
-                      fontSize: 13,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: 'Type a message...',
-                      hintStyle: TextStyle(
-                        color: isDark
-                            ? AppColors.darkTextMuted
-                            : AppColors.lightTextMuted,
-                        fontSize: 13,
+                child: Row(
+                  children: [
+                    Icon(
+                        _pendingMediaUrl == null
+                            ? Icons.lock_outline
+                            : Icons.image_outlined,
+                        color: _isPpv
+                            ? AppColors.lightAccent
+                            : AppColors.lightPrimary,
+                        size: 18),
+                    AppSpacing.gapXS,
+                    Expanded(
+                      child: Text(
+                        _pendingMediaUrl != null
+                            ? (_isPpv
+                                ? 'image attached · locked for rs ${_ppvPrice.round()}'
+                                : 'image attached')
+                            : 'next message locked for rs ${_ppvPrice.round()}',
+                        style: TextStyle(
+                            color: mutedColor,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600),
                       ),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => setState(() {
+                        _pendingMediaUrl = null;
+                        _pendingMediaType = null;
+                        _isPpv = false;
+                      }),
+                      icon: Icon(Icons.close_rounded,
+                          color: mutedColor, size: 18),
+                    ),
+                  ],
+                ),
+              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                IconButton(
+                  icon: Icon(Icons.add_photo_alternate_outlined,
+                      color: mutedColor, size: 23),
+                  onPressed: _isBlocked ? null : _attachImageMessage,
+                ),
+                IconButton(
+                  icon: Icon(
+                    _isPpv ? Icons.lock_rounded : Icons.lock_outline_rounded,
+                    color: _isPpv ? AppColors.lightAccent : mutedColor,
+                    size: 22,
+                  ),
+                  onPressed: _isBlocked ? null : _togglePpv,
+                ),
+                Expanded(
+                  child: Container(
+                    constraints:
+                        const BoxConstraints(minHeight: 44, maxHeight: 118),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? AppColors.darkBorder
+                          : const Color(0xFFF8FAFC),
+                      borderRadius: AppRadius.rFull,
+                      border: Border.all(
+                        color: isDark
+                            ? AppColors.darkBorderStrong
+                            : AppColors.lightBorder,
+                      ),
+                    ),
+                    child: TextField(
+                      controller: _textController,
+                      enabled: !_isBlocked,
+                      minLines: 1,
+                      maxLines: 4,
+                      textInputAction: TextInputAction.newline,
+                      style: TextStyle(
+                        color: isDark
+                            ? AppColors.darkTextMain
+                            : AppColors.lightTextMain,
+                        fontSize: 14,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: _isBlocked
+                            ? 'account blocked'
+                            : 'message @${widget.username}...',
+                        hintStyle: TextStyle(color: mutedColor, fontSize: 14),
+                        border: InputBorder.none,
+                        contentPadding:
+                            const EdgeInsets.symmetric(vertical: 11),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              AppSpacing.gapSM,
-              IconButton(
-                icon: const Icon(Icons.send_rounded,
-                    color: AppColors.lightPrimary, size: 22),
-                onPressed: _sendMessage,
-              ),
-            ],
-          ),
+                AppSpacing.gapXS,
+                SizedBox(
+                  height: 44,
+                  width: 44,
+                  child: IconButton.filled(
+                    style: IconButton.styleFrom(
+                        backgroundColor: AppColors.lightPrimary),
+                    onPressed: _isSending || _isBlocked ? null : _sendMessage,
+                    icon: _isSending
+                        ? const SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.send_rounded,
+                            color: Colors.white, size: 20),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );

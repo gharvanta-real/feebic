@@ -1,95 +1,177 @@
 "use client";
 
-import React from "react";
-import { SignIn } from "@clerk/nextjs";
+import React, { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { apiClient } from "@/lib/apiClient";
+import { AuthError, AuthField, AuthSplitShell } from "@/components/auth/AuthSplitShell";
+import { useUser } from "@/context/UserContext";
+
+type LoginResponse = {
+  token: string;
+};
+
+type AuthMode = "login" | "reset-email" | "reset-code";
 
 export default function LoginPage() {
+  const router = useRouter();
+  const { refreshUserProfile } = useUser();
+  const [mode, setMode] = useState<AuthMode>("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [remember, setRemember] = useState(true);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    setLoading(true);
+    try {
+      const response = await apiClient.post<LoginResponse>("/auth/login", {
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      localStorage.setItem("ch_token", response.token);
+      localStorage.removeItem("ch_logged_out");
+      if (remember) localStorage.setItem("ch_remember_session", "true");
+      await refreshUserProfile();
+      router.replace("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "sign in failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startReset = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    setLoading(true);
+    try {
+      await apiClient.post("/auth/password/reset/start", {
+        email: email.trim().toLowerCase(),
+      });
+      setMode("reset-code");
+      setMessage("reset code sent to your email");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "could not send reset code");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const completeReset = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    setLoading(true);
+    try {
+      await apiClient.post("/auth/password/reset/verify", {
+        email: email.trim().toLowerCase(),
+        code: resetCode.trim(),
+        new_password: newPassword,
+      });
+      setPassword("");
+      setNewPassword("");
+      setResetCode("");
+      setMode("login");
+      setMessage("password updated. you can log in now");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "could not reset password");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-background bg-dot-pattern relative flex flex-col justify-between overflow-x-hidden">
-      {/* Subtle radial glow overlay */}
-      <div className="absolute inset-0 bg-radial-glow pointer-events-none" />
-
-      {/* Main Two-Column Split Screen */}
-      <div className="flex-1 flex flex-col lg:flex-row items-center justify-center lg:justify-between px-6 py-12 lg:px-20 max-w-[1240px] mx-auto w-full gap-12 lg:gap-20 z-10">
-        
-        {/* Left Side: Platform info & marketing banner */}
-        <div className="flex-1 flex flex-col justify-center select-none text-left max-lg:items-center max-lg:text-center">
-          {/* Brand Logo - CreatorHub inspired custom branch network logo */}
-          <div className="flex items-center gap-2 cursor-pointer group">
-            <svg 
-              viewBox="0 0 32 32" 
-              className="h-10 w-10 text-primary shrink-0 transition-transform duration-300 group-hover:scale-105" 
-              fill="none" 
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <circle cx="16" cy="16" r="4.5" fill="currentColor" />
-              <line x1="16" y1="16" x2="10" y2="7.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-              <line x1="16" y1="16" x2="22.5" y2="7.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-              <line x1="16" y1="16" x2="7.5" y2="19.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-              <line x1="16" y1="16" x2="24.5" y2="19.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-              <line x1="16" y1="16" x2="16" y2="25.5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-              <circle cx="10" cy="7.5" r="2.8" fill="currentColor" />
-              <circle cx="22.5" cy="7.5" r="2.8" fill="currentColor" />
-              <circle cx="7.5" cy="19.5" r="2.8" fill="currentColor" />
-              <circle cx="24.5" cy="19.5" r="2.8" fill="currentColor" />
-              <circle cx="16" cy="25.5" r="2.8" fill="currentColor" />
-            </svg>
-            <span className="text-[32px] font-black tracking-tighter leading-none font-sans select-none">
-              <span className="text-text-main">fel</span>
-              <span className="text-primary">bic</span>
-            </span>
-          </div>
-
-          <h1 className="text-[34px] md:text-5xl lg:text-[46px] font-black text-text-main leading-[1.15] tracking-tight mt-10 max-w-[500px]">
-            Sign up to support your favorite creators
+    <AuthSplitShell mode="login">
+      <form onSubmit={mode === "login" ? submit : mode === "reset-email" ? startReset : completeReset} className="space-y-5">
+        <div className="space-y-2 text-center sm:text-left">
+          <h1 className="text-2xl font-semibold leading-tight text-slate-900">
+            {mode === "login" ? "log in to Felbic" : mode === "reset-email" ? "reset password" : "create new password"}
           </h1>
-          
-          <p className="text-xs md:text-sm text-text-muted leading-relaxed mt-5 max-w-[450px] font-medium">
-            Join a community of millions and get exclusive access to content you won't find anywhere else. Support creators directly and build meaningful connections.
+          <p className="text-sm font-normal leading-6 text-slate-500">
+            {mode === "login"
+              ? "access messages, premium posts, wallet, and creator tools from one account."
+              : mode === "reset-email"
+                ? "enter your account email and we will send a reset code."
+                : `enter the code sent to ${email} and choose a new password.`}
           </p>
+        </div>
 
-          {/* Creators Avatars Loop */}
-          <div className="flex flex-col max-lg:items-center">
-            <div className="flex items-center mt-12 select-none">
-              <div className="flex -space-x-3.5">
-                <img src="/assets/00dcbdc82244f0ba0d9f0e475c7e7780.png" className="h-[46px] w-[46px] rounded-full border-2 border-background object-cover shrink-0" alt="Lana" />
-                <img src="/assets/0c0bf4c58678d852ea7588ef1045309e.png" className="h-[46px] w-[46px] rounded-full border-2 border-background object-cover shrink-0" alt="Demi" />
-                <img src="/assets/31ccb1dded9dd42d60e1b0ab43ae8750.png" className="h-[46px] w-[46px] rounded-full border-2 border-background object-cover shrink-0" alt="Amouranth" />
-                <img src="/assets/5dc72593d711173af1fe7ab74be0fa56.png" className="h-[46px] w-[46px] rounded-full border-2 border-background object-cover shrink-0" alt="Austin" />
-                <div className="h-[46px] w-[46px] rounded-full border-2 border-background bg-primary/10 text-primary text-[11px] font-black flex items-center justify-center shrink-0">
-                  +2M
-                </div>
-              </div>
-            </div>
-            <p className="text-[12px] text-text-muted mt-4 font-bold tracking-tight">
-              Creators are already sharing their journey here.
-            </p>
+        {mode === "login" && (
+          <div className="space-y-3">
+            <AuthField label="email" value={email} onChange={setEmail} type="email" placeholder="you@example.com" required />
+            <AuthField label="password" value={password} onChange={setPassword} type="password" placeholder="minimum 8 characters" minLength={8} required />
           </div>
-        </div>
+        )}
 
-        {/* Right Side: Centered Clerk form card */}
-        <div className="flex-1 flex justify-center w-full lg:max-w-[480px]">
-          <SignIn 
-            routing="hash"
-            signUpUrl="/sign-up" 
-            forceRedirectUrl="/"
-          />
-        </div>
+        {mode === "reset-email" && (
+          <AuthField label="email" value={email} onChange={setEmail} type="email" placeholder="you@example.com" required />
+        )}
 
-      </div>
+        {mode === "reset-code" && (
+          <div className="space-y-3">
+            <AuthField label="reset code" value={resetCode} onChange={setResetCode} inputMode="numeric" placeholder="6 digit code" required />
+            <AuthField label="new password" value={newPassword} onChange={setNewPassword} type="password" placeholder="minimum 8 characters" minLength={8} required />
+            <button type="button" onClick={startReset} disabled={loading} className="rounded-sm text-xs font-medium text-sky-600 outline-none transition hover:text-sky-700 hover:underline focus:ring-2 focus:ring-sky-100 disabled:opacity-50">
+              resend code
+            </button>
+          </div>
+        )}
 
-      {/* Footer bar links */}
-      <footer className="w-full py-6 border-t border-border/40 select-none bg-background/50 backdrop-blur-sm z-10">
-        <div className="max-w-[1240px] mx-auto px-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[11px] md:text-xs text-text-muted font-bold tracking-wide">
-          <span className="hover:text-primary cursor-pointer transition-colors">About</span>
-          <span className="hover:text-primary cursor-pointer transition-colors">Help</span>
-          <span className="hover:text-primary cursor-pointer transition-colors">Terms of Service</span>
-          <span className="hover:text-primary cursor-pointer transition-colors">Privacy Policy</span>
-          <span className="hover:text-primary cursor-pointer transition-colors">Cookie Policy</span>
-          <span className="hover:text-primary cursor-pointer transition-colors">Blog</span>
-          <span className="text-text-muted/60 ml-auto max-md:mx-auto">© 2026 Felbic</span>
-        </div>
-      </footer>
-    </div>
+        {mode === "login" && (
+          <div className="flex items-center justify-between gap-3">
+            <label className="flex cursor-pointer items-center gap-2 text-xs font-normal text-slate-500">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(event) => setRemember(event.target.checked)}
+              className="h-4 w-4 rounded border-[#d8e2ee] text-sky-500 accent-sky-500"
+              />
+              remember sign in details
+            </label>
+            <button type="button" onClick={() => { setMode("reset-email"); setError(""); setMessage(""); }} className="rounded-sm text-xs font-medium text-sky-600 outline-none transition hover:text-sky-700 hover:underline focus:ring-2 focus:ring-sky-100">
+              forgot password?
+            </button>
+          </div>
+        )}
+
+        <AuthError message={error} />
+        {message && <p className="rounded-md border border-sky-100 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700">{message}</p>}
+
+        <button
+          disabled={loading}
+          className="h-11 w-full rounded-md bg-sky-500 text-sm font-semibold text-white outline-none transition hover:bg-sky-600 focus:ring-2 focus:ring-sky-100 disabled:opacity-60"
+        >
+          {loading ? "please wait..." : mode === "login" ? "log in" : mode === "reset-email" ? "send reset code" : "update password"}
+        </button>
+
+        {mode !== "login" && (
+          <button type="button" onClick={() => { setMode("login"); setError(""); setMessage(""); }} className="w-full rounded-sm text-sm font-medium text-slate-500 outline-none transition hover:text-slate-900 hover:underline focus:ring-2 focus:ring-sky-100">
+            back to login
+          </button>
+        )}
+
+        {mode === "login" && <div className="flex items-center gap-3 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-400">
+          <span className="h-px flex-1 bg-slate-200" />
+          or
+          <span className="h-px flex-1 bg-slate-200" />
+        </div>}
+
+        {mode === "login" && <p className="text-center text-sm font-normal text-slate-500">
+          do not have an account?{" "}
+          <Link className="rounded-sm font-medium text-sky-600 outline-none transition hover:text-sky-700 hover:underline focus:ring-2 focus:ring-sky-100" href="/sign-up">
+            sign up
+          </Link>
+        </p>}
+      </form>
+    </AuthSplitShell>
   );
 }

@@ -11,7 +11,7 @@
   --shadow-sm: none;
   --shadow-md: none;
   --shadow-lg: none;
-  --clerk-card-shadow: 0 4px 20px -2px hsl(var(--border-hsl) / 0.25);
+  --auth-card-shadow: 0 4px 20px -2px hsl(var(--border-hsl) / 0.25);
   
   --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -85,5 +85,5 @@
   --shadow-sm: none;
   --shadow-md: none;
   --shadow-lg: none;
-  --clerk-card-shadow: none;
+  --auth-card-shadow: none;
 }

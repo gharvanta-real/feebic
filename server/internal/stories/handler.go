@@ -72,7 +72,14 @@ func CreateStory(c *fiber.Ctx) error {
 
 // 2. Fetch and group active stories (expires_at > NOW)
 func GetActiveStories(c *fiber.Ctx) error {
-	userID := c.Locals("userID").(string)
+	userID := ""
+	if localUserID, ok := c.Locals("userID").(string); ok {
+		userID = localUserID
+	}
+	var viewerID interface{} = nil
+	if userID != "" {
+		viewerID = userID
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -84,9 +91,9 @@ func GetActiveStories(c *fiber.Ctx) error {
 		        EXISTS(SELECT 1 FROM story_views sv WHERE sv.story_id = s.id AND sv.user_id = $1) AS is_viewed
 		 FROM stories s
 		 JOIN profiles p ON s.creator_id = p.user_id
-		 WHERE s.expires_at > NOW()
+		 WHERE s.expires_at > NOW() AND p.hidden = false
 		 ORDER BY s.created_at ASC`,
-		userID,
+		viewerID,
 	)
 
 	if err != nil {

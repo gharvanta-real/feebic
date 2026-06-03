@@ -169,7 +169,7 @@ export default function ExplorePage() {
                           <div className="text-right">
                             <p className="text-[10px] text-text-muted font-bold uppercase tracking-wider">Base Tier</p>
                             <p className="text-sm font-black text-text-main">
-                              {creator.subPrice === 0 ? "FREE" : `$${creator.subPrice}/mo`}
+                              {creator.subPrice === 0 ? "FREE" : `₹${creator.subPrice}/mo`}
                             </p>
                           </div>
                           <Link
@@ -200,7 +200,7 @@ export default function ExplorePage() {
                           <span className="text-xs text-text-muted font-semibold">@{creator.username}</span>
                         </div>
                         
-                        <p className="text-xs text-text-main line-clamp-2 leading-relaxed select-text font-medium">
+                        <p className="text-xs text-text-main line-clamp-2 leading-relaxed select-text font-medium whitespace-pre-wrap">
                           {creator.bio}
                         </p>
                       </div>

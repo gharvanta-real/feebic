@@ -1,5 +1,11 @@
+import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import '../../../../core/state/demo_app_state.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../../../core/auth/auth_session.dart';
+import '../../../../core/di/injection.dart';
+import '../../../../core/network/api_client.dart';
+import '../../../../core/network/cloudinary_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -28,9 +34,10 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   double _unlockPrice = 399;
   double _blurSigma = 15;
-  String _selectedMediaUrl =
-      'https://images.unsplash.com/photo-1513364776144-60967b0f800f';
+  String _selectedMediaUrl = '';
+  String? _selectedLocalPath;
   String? _selectedVideoUrl;
+  File? _selectedFile;
   final List<String> _selectedTiers = ['Free Subscribers'];
 
   final _captionController = TextEditingController();
@@ -38,40 +45,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   final List<TextEditingController> _pollControllers = [
     TextEditingController(text: 'More behind the scenes'),
     TextEditingController(text: 'Long-form tutorial'),
-  ];
-
-  static const _imagePresets = [
-    MediaPreset(
-      name: 'Studio portrait',
-      imageUrl: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1',
-    ),
-    MediaPreset(
-      name: 'Digital artwork',
-      imageUrl: 'https://images.unsplash.com/photo-1513364776144-60967b0f800f',
-    ),
-    MediaPreset(
-      name: 'Fitness session',
-      imageUrl: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd',
-    ),
-    MediaPreset(
-      name: 'Travel set',
-      imageUrl: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e',
-    ),
-  ];
-
-  static const _videoPresets = [
-    MediaPreset(
-      name: 'Art process trailer',
-      imageUrl: 'https://images.unsplash.com/photo-1513364776144-60967b0f800f',
-      videoUrl:
-          'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExM3Npa3JzMDl2dHpxMXptcmQ1b3hxdTkybnF4MDFpOHFhc2I2anZ0dSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/l41Yc2nICfMnsgfa8/giphy.gif',
-    ),
-    MediaPreset(
-      name: 'Travel vlog trailer',
-      imageUrl: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e',
-      videoUrl:
-          'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExMGx0MmJ3aDVndThqN3I0ZzRsMGZsdHZ2cjhkZHAzYm42Y25odWN1NCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/1AgGfR18U6da3o9J1B/giphy.gif',
-    ),
   ];
 
   static const _tags = [
@@ -86,7 +59,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   @override
   void initState() {
     super.initState();
-    _watermarkController = TextEditingController(text: '@${DemoAppState.instance.creatorUsername}');
+    _watermarkController = TextEditingController(text: '@creator');
     _captionController.addListener(_refreshPreview);
     _watermarkController.addListener(_refreshPreview);
   }
@@ -107,6 +80,23 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   void _refreshPreview() {
     if (mounted) setState(() {});
+  }
+
+  Future<void> _pickMedia() async {
+    final picker = ImagePicker();
+    final picked = _isVideo
+        ? await picker.pickVideo(source: ImageSource.gallery)
+        : await picker.pickImage(
+            source: ImageSource.gallery,
+            imageQuality: 92,
+          );
+    if (picked == null) return;
+    setState(() {
+      _selectedFile = File(picked.path);
+      _selectedLocalPath = picked.path;
+      _selectedMediaUrl = '';
+      _selectedVideoUrl = _isVideo ? picked.path : null;
+    });
   }
 
   void _addTag(String tag) {
@@ -152,36 +142,120 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   Future<void> _publish() async {
     setState(() => _isPublishing = true);
-    await Future<void>.delayed(const Duration(milliseconds: 650));
-    if (!mounted) return;
+    try {
+      if (getIt<AuthSession>().role != 'creator') {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Only creator accounts can publish posts. Please sign in as a creator.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
 
-    DemoAppState.instance.addPost(
-      DemoPost(
-        postId: 'new_post_${DateTime.now().millisecondsSinceEpoch}',
-        username: DemoAppState.instance.creatorUsername,
-        avatarUrl: DemoAppState.instance.creatorAvatar,
-        isVerified: true,
-        caption: _captionController.text.trim().isEmpty
+      if (_selectedFile == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Choose media from your device before publishing.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      final uploadedUrl = await getIt<CloudinaryService>().uploadFile(
+        _selectedFile!,
+        type: _isVideo ? 'videos' : 'posts',
+      );
+
+      final List<String> mediaUrls = [];
+      mediaUrls.add(uploadedUrl);
+
+      final payload = {
+        'content': _captionController.text.trim().isEmpty
             ? 'New exclusive post is ready for fans.'
             : _captionController.text.trim(),
-        imageUrl: _selectedMediaUrl,
-        videoUrl: _isVideo ? _selectedVideoUrl : null,
-        isLocked: _isLocked,
-        unlockPrice: _isLocked ? 'Rs ${_unlockPrice.round()}' : null,
-        isVideo: _isVideo,
-      ),
-    );
+        'media_urls': mediaUrls,
+        'media_type': _isVideo ? 'video' : 'image',
+        'is_premium': _isLocked,
+        'price': _isLocked ? _unlockPrice : 0.0,
+        'poll': _enablePoll
+            ? {
+                'question': 'Which content do you prefer?',
+                'options': _pollControllers
+                    .map((c) => {'text': c.text, 'votes': 0.0})
+                    .toList(),
+              }
+            : null,
+        'fundraiser': null,
+        'teaser_url': '',
+        'publish_at': '',
+        'target_list_id': '',
+      };
 
-    setState(() => _isPublishing = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(_isScheduled
-            ? 'Post scheduled and added to feed preview.'
-            : 'Post published to feed.'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-    Navigator.pop(context);
+      final response = await getIt<ApiClient>().post('/posts', data: payload);
+
+      if (response.statusCode == 201) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_isScheduled
+                ? 'Post scheduled successfully.'
+                : 'Post published successfully.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        Navigator.pop(context);
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to publish post to backend server.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } on DioException catch (e) {
+      debugPrint('Error publishing post: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_publishErrorMessage(e)),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error publishing post: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Connection error: Failed to publish post.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isPublishing = false);
+      }
+    }
+  }
+
+  String _publishErrorMessage(DioException e) {
+    final data = e.response?.data;
+    if (data is Map && data['error'] != null) {
+      return data['error'].toString();
+    }
+    if (e.response?.statusCode == 403) {
+      return 'Only creator accounts can publish posts.';
+    }
+    if (e.response?.statusCode == 401) {
+      return 'Please sign in again before publishing.';
+    }
+    return 'Connection error: Failed to publish post.';
   }
 
   @override
@@ -211,24 +285,18 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                       MediaPickerSection(
                         isVideo: _isVideo,
                         selectedMediaUrl: _selectedMediaUrl,
+                        selectedLocalPath: _selectedLocalPath,
                         selectedVideoUrl: _selectedVideoUrl,
-                        imagePresets: _imagePresets,
-                        videoPresets: _videoPresets,
                         onVideoModeChanged: (value) {
-                          final preset =
-                              value ? _videoPresets.first : _imagePresets.first;
                           setState(() {
                             _isVideo = value;
-                            _selectedMediaUrl = preset.imageUrl;
-                            _selectedVideoUrl = preset.videoUrl;
+                            _selectedMediaUrl = '';
+                            _selectedLocalPath = null;
+                            _selectedVideoUrl = null;
+                            _selectedFile = null;
                           });
                         },
-                        onPresetSelected: (preset) {
-                          setState(() {
-                            _selectedMediaUrl = preset.imageUrl;
-                            _selectedVideoUrl = preset.videoUrl;
-                          });
-                        },
+                        onPickFromDevice: _pickMedia,
                       ),
                     if (_step == 1)
                       CaptionToolsSection(
@@ -272,6 +340,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                         child: PostPreviewCard(
                           caption: _captionController.text,
                           mediaUrl: _selectedMediaUrl,
+                          localMediaPath: _selectedLocalPath,
                           videoUrl: _selectedVideoUrl,
                           isVideo: _isVideo,
                           locked: _isLocked,

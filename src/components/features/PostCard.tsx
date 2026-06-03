@@ -63,7 +63,7 @@ const renderLinkedText = (text: string) => {
 };
 
 export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpdate, defaultShowComments = false }) => {
-  const { user, subscriptions, showToast, refreshUserProfile } = useUser();
+  const { user, subscriptions, subscribeToCreator, showToast, refreshUserProfile } = useUser();
   const router = useRouter();
   const pathname = usePathname();
   const [post, setPost] = useState<Post>(initialPost);
@@ -83,13 +83,14 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
   // Comments accordion state
   const [showComments, setShowComments] = useState(defaultShowComments);
   const [comments, setComments] = useState<PostComment[]>([]);
+  const [commentsLoaded, setCommentsLoaded] = useState(false);
   const [newCommentText, setNewCommentText] = useState("");
 
   // Locked payment modal state
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [paymentTitle, setPaymentTitle] = useState("");
   const [paymentPrice, setPaymentPrice] = useState(0);
-  const [paymentMode, setPaymentMode] = useState<"unlock" | "tip" | "fundraiser">("unlock");
+  const [paymentMode, setPaymentMode] = useState<"unlock" | "tip" | "fundraiser" | "subscribe">("unlock");
 
   // Tip state
   const [tipAmount, setTipAmount] = useState("5.00");
@@ -169,6 +170,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
     try {
       const data = await apiClient.get<PostComment[]>(`/posts/${post.id}/comments`);
       setComments(data);
+      setCommentsLoaded(true);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to load comments");
     }
@@ -191,7 +193,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
     }
     const next = !showComments;
     setShowComments(next);
-    if (next) {
+    if (next && !commentsLoaded) {
       fetchComments();
     }
   };
@@ -204,10 +206,41 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
     try {
       const res = await apiClient.post<CommentResponse>(`/posts/${post.id}/comments`, { text });
       setComments([...comments, res.comment]);
+      setCommentsLoaded(true);
       setNewCommentText("");
       setPost({ ...post, commentsCount: res.comments_count });
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to add comment");
+    }
+  };
+
+  const handleQuickSubscribe = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    if (!user) {
+      showToast("Please sign in to subscribe");
+      return;
+    }
+    
+    const subPrice = creator?.subPrice || 0;
+    
+    if (subPrice > 0) {
+      setPaymentMode("subscribe");
+      setPaymentTitle(`Subscribe to @${post.creatorUsername}`);
+      setPaymentPrice(subPrice);
+      setIsPaymentOpen(true);
+    } else {
+      try {
+        const success = await subscribeToCreator(post.creatorUsername);
+        if (success) {
+          if (onPostUpdate) onPostUpdate();
+          refreshUserProfile();
+        }
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Failed to subscribe");
+      }
     }
   };
 
@@ -256,6 +289,16 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
         showToast(`Tip of ₹${paymentPrice.toFixed(2)} sent to @${post.creatorUsername}!`);
       } catch (err) {
         showToast(err instanceof Error ? err.message : "Failed to send tip");
+      }
+    } else if (paymentMode === "subscribe") {
+      try {
+        const success = await subscribeToCreator(post.creatorUsername);
+        if (success) {
+          if (onPostUpdate) onPostUpdate();
+          setIsPaymentOpen(false);
+        }
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Failed to subscribe");
       }
     } else if (paymentMode === "fundraiser") {
       await handleContributionSuccess();
@@ -515,6 +558,16 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
         </Link>
 
         <div className="flex items-center gap-2 shrink-0">
+          {/* Quick Subscribe Button */}
+          {!isSubscribed && user && user.username !== post.creatorUsername && (
+            <button
+              onClick={handleQuickSubscribe}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-[10px] font-black text-primary hover:bg-primary hover:text-white transition-all cursor-pointer select-none"
+            >
+              <span className="material-symbols-outlined text-[13px] leading-none font-bold">add</span>
+              <span>Subscribe</span>
+            </button>
+          )}
           {/* Tip button (visible only on unlocked posts) */}
           {!isLocked && (
             <div className="relative">
@@ -697,9 +750,9 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
             <div className="absolute inset-0 bg-black/50 backdrop-blur-xl" />
             
             {/* Watermark security overlay on locked preview */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden opacity-25 z-0">
-              <span className="text-[20px] font-black uppercase tracking-widest text-white/50 transform -rotate-12 whitespace-nowrap">
-                feebic.in/@{post.creatorUsername}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden opacity-[0.07] z-0">
+              <span className="text-[20px] font-black uppercase tracking-widest text-white/40 transform -rotate-12 whitespace-nowrap">
+                felbic.in/@{post.creatorUsername}
               </span>
             </div>
 
@@ -722,7 +775,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
                   : "Join now to access exclusive photos and videos from this creator."}
               </p>
               <button
-                onClick={triggerUnlock}
+                onClick={isPPV ? triggerUnlock : () => handleQuickSubscribe()}
                 className="bg-primary hover:bg-primary-hover active:scale-95 text-white px-7 py-2.5 rounded-full text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer uppercase tracking-wider"
               >
                 {isPPV ? (
@@ -744,9 +797,9 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
             {renderMediaGrid()}
             
             {/* Watermark security overlay on unlocked media */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden opacity-25 z-20">
-              <span className="text-[22px] font-black uppercase tracking-widest text-white/60 transform -rotate-12 whitespace-nowrap bg-black/10 px-4 py-1.5 rounded-xl border border-white/10 shadow-sm backdrop-blur-[0.5px]">
-                feebic.in/@{post.creatorUsername}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden opacity-[0.12] z-20">
+              <span className="text-[22px] font-black uppercase tracking-widest text-white/50 transform -rotate-12 whitespace-nowrap bg-black/10 px-4 py-1.5 rounded-xl border border-white/10 shadow-sm backdrop-blur-[0.5px]">
+                felbic.in/@{post.creatorUsername}
               </span>
             </div>
           </div>

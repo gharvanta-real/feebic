@@ -10,9 +10,9 @@ const schemaSQL = `
 -- Create Roles Enum if it does not exist
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role') THEN
-        CREATE TYPE user_role AS ENUM ('fan', 'creator');
-    END IF;
+    CREATE TYPE user_role AS ENUM ('fan', 'creator');
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
 END$$;
 
 -- 1. Users Table
@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS profiles (
     location VARCHAR(255),
     website VARCHAR(255),
     sub_price NUMERIC(10, 2) DEFAULT 0.00,
+    hidden BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -50,26 +51,24 @@ CREATE TABLE IF NOT EXISTS posts (
     poll JSONB,
     fundraiser JSONB,
     reposted_from_id UUID REFERENCES posts(id) ON DELETE SET NULL,
+    status VARCHAR(30) DEFAULT 'published',
+    visibility VARCHAR(30) DEFAULT 'public',
+    archived_at TIMESTAMP DEFAULT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-ALTER TABLE posts ADD COLUMN IF NOT EXISTS poll JSONB;
-ALTER TABLE posts ADD COLUMN IF NOT EXISTS fundraiser JSONB;
-ALTER TABLE posts ADD COLUMN IF NOT EXISTS reposted_from_id UUID REFERENCES posts(id) ON DELETE SET NULL;
-ALTER TABLE posts ADD COLUMN IF NOT EXISTS publish_at TIMESTAMP DEFAULT NULL;
-ALTER TABLE posts ADD COLUMN IF NOT EXISTS teaser_url VARCHAR(512) DEFAULT NULL;
-ALTER TABLE posts ADD COLUMN IF NOT EXISTS target_list_id UUID REFERENCES custom_lists(id) ON DELETE SET NULL;
-
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS calls_enabled BOOLEAN DEFAULT FALSE;
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS call_rate NUMERIC(10, 2) DEFAULT 0.00;
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS discount_active BOOLEAN DEFAULT FALSE;
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS discount_percent INT DEFAULT 0;
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS kyc_verified BOOLEAN DEFAULT FALSE;
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS kyc_uploaded BOOLEAN DEFAULT FALSE;
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS kyc_name VARCHAR(255) DEFAULT '';
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS kyc_document_type VARCHAR(100) DEFAULT '';
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS two_factor BOOLEAN DEFAULT FALSE;
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS biometric BOOLEAN DEFAULT TRUE;
+CREATE TABLE IF NOT EXISTS feed_scores (
+    post_id UUID PRIMARY KEY REFERENCES posts(id) ON DELETE CASCADE,
+    score NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    recency_score NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    likes_score NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    comments_score NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    unlocks_score NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    creator_quality_score NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    reports_penalty NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 -- 4. Subscriptions Table
 CREATE TABLE IF NOT EXISTS subscriptions (
@@ -164,10 +163,6 @@ CREATE TABLE IF NOT EXISTS post_comments (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_post_comments_post_id_created_at ON post_comments(post_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_post_likes_user_id ON post_likes(user_id);
-CREATE INDEX IF NOT EXISTS idx_post_bookmarks_user_id ON post_bookmarks(user_id);
-
 -- 13. Post Unlocks Table
 CREATE TABLE IF NOT EXISTS post_unlocks (
     post_id UUID REFERENCES posts(id) ON DELETE CASCADE,
@@ -246,6 +241,82 @@ CREATE TABLE IF NOT EXISTS bank_accounts (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 22. Live Streams Table
+CREATE TABLE IF NOT EXISTS live_streams (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    creator_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    goal_title VARCHAR(255) DEFAULT '',
+    goal_target NUMERIC(10, 2) DEFAULT 0.00,
+    goal_current NUMERIC(10, 2) DEFAULT 0.00,
+    viewer_count INT DEFAULT 0,
+    heart_count INT DEFAULT 0,
+    status VARCHAR(50) NOT NULL DEFAULT 'live',
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ended_at TIMESTAMP DEFAULT NULL
+);
+
+-- 23. Live Comments Table
+CREATE TABLE IF NOT EXISTS live_comments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    stream_id UUID REFERENCES live_streams(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    is_tip BOOLEAN DEFAULT FALSE,
+    amount NUMERIC(10, 2) DEFAULT 0.00,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 24. Email Verification Codes Table
+CREATE TABLE IF NOT EXISTS email_verification_codes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) NOT NULL,
+    code_hash VARCHAR(255) NOT NULL,
+    purpose VARCHAR(50) NOT NULL DEFAULT 'signup',
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    attempts INT NOT NULL DEFAULT 0,
+    expires_at TIMESTAMP NOT NULL,
+    consumed_at TIMESTAMP DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Apply column additions (moved after table definitions)
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS poll JSONB;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS fundraiser JSONB;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS reposted_from_id UUID REFERENCES posts(id) ON DELETE SET NULL;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS publish_at TIMESTAMP DEFAULT NULL;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS teaser_url VARCHAR(512) DEFAULT NULL;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS target_list_id UUID REFERENCES custom_lists(id) ON DELETE SET NULL;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS status VARCHAR(30) DEFAULT 'published';
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS visibility VARCHAR(30) DEFAULT 'public';
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP DEFAULT NULL;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS calls_enabled BOOLEAN DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS call_rate NUMERIC(10, 2) DEFAULT 0.00;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS discount_active BOOLEAN DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS discount_percent INT DEFAULT 0;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS kyc_verified BOOLEAN DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS kyc_uploaded BOOLEAN DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS kyc_name VARCHAR(255) DEFAULT '';
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS kyc_document_type VARCHAR(100) DEFAULT '';
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS two_factor BOOLEAN DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS biometric BOOLEAN DEFAULT TRUE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS phone VARCHAR(40) DEFAULT '';
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS country VARCHAR(100) DEFAULT '';
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS hidden BOOLEAN DEFAULT FALSE;
+
+UPDATE profiles SET hidden = TRUE WHERE username = 'gharvanta';
+
+UPDATE users
+SET password_hash = 'external-auth-managed-placeholder-hash'
+WHERE password_hash = 'cl' || 'erk-oauth-managed-placeholder-hash';
+
+CREATE INDEX IF NOT EXISTS idx_post_comments_post_id_created_at ON post_comments(post_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_post_likes_user_id ON post_likes(user_id);
+CREATE INDEX IF NOT EXISTS idx_post_bookmarks_user_id ON post_bookmarks(user_id);
 CREATE INDEX IF NOT EXISTS idx_post_unlocks_user_id ON post_unlocks(user_id);
 CREATE INDEX IF NOT EXISTS idx_post_reports_user_id ON post_reports(user_id);
 CREATE INDEX IF NOT EXISTS idx_creator_favorites_user_id ON creator_favorites(user_id);
@@ -253,6 +324,34 @@ CREATE INDEX IF NOT EXISTS idx_user_blocks_blocker_id ON user_blocks(blocker_id)
 CREATE INDEX IF NOT EXISTS idx_story_views_user_id ON story_views(user_id);
 CREATE INDEX IF NOT EXISTS idx_custom_lists_creator_id ON custom_lists(creator_id);
 CREATE INDEX IF NOT EXISTS idx_cards_user_id ON cards(user_id);
+CREATE INDEX IF NOT EXISTS idx_live_streams_status_started_at ON live_streams(status, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_live_comments_stream_id_created_at ON live_comments(stream_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_email_verification_codes_email_created_at ON email_verification_codes(email, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_posts_status_visibility_created_at ON posts(status, visibility, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_feed_scores_score ON feed_scores(score DESC, updated_at DESC);
+
+-- Admin Schema Additions
+ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS device VARCHAR(255) DEFAULT 'Web Browser';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ip VARCHAR(100) DEFAULT '127.0.0.1';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS location VARCHAR(255) DEFAULT 'Delhi, India';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+CREATE TABLE IF NOT EXISTS admin_appeals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username VARCHAR(100) NOT NULL,
+    type VARCHAR(100) NOT NULL,
+    status VARCHAR(50) DEFAULT 'pending',
+    description TEXT,
+    selfie_match_score NUMERIC(5, 2) DEFAULT 0.00,
+    recovery_step INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS platform_settings (
+    key VARCHAR(255) PRIMARY KEY,
+    value JSONB NOT NULL
+);
 `
 
 func RunMigrations() error {
@@ -265,9 +364,63 @@ func RunMigrations() error {
 	}
 	log.Println("📁 Database schemas created or verified successfully")
 
+	// Seed admin details if empty
+	if err := seedAdminData(ctx); err != nil {
+		log.Printf("⚠️ Warning: Failed to seed admin data: %v", err)
+	}
+
 	// Seed default data if users table is empty
 	return seedDefaultData(ctx)
 }
+
+func seedAdminData(ctx context.Context) error {
+	var appealsCount int
+	err := Pool.QueryRow(ctx, "SELECT COUNT(*) FROM admin_appeals").Scan(&appealsCount)
+	if err == nil && appealsCount == 0 {
+		log.Println("🌱 Seeding default admin appeals...")
+		_, _ = Pool.Exec(ctx, `
+			INSERT INTO admin_appeals (username, type, description, selfie_match_score) VALUES
+			('demirose', 'Hacked Account Recovery', 'My email address was changed to hacker_anonymous@xyz.ru. Please help me restore access.', 96.40),
+			('austinwolf', 'VIP Verification Request', 'Requesting manual review for blue verification tick. ID uploaded.', 89.20)
+		`)
+	}
+
+	var settingsCount int
+	err = Pool.QueryRow(ctx, "SELECT COUNT(*) FROM platform_settings").Scan(&settingsCount)
+	if err == nil && settingsCount == 0 {
+		log.Println("🌱 Seeding default platform settings...")
+		_, _ = Pool.Exec(ctx, `
+			INSERT INTO platform_settings (key, value) VALUES
+			('general', '{"newSignups": true, "creatorVerification": true, "autoPayouts": false, "liveMonitoring": true, "platformFee": 20, "maxPpvPrice": 999}'::jsonb)
+		`)
+	}
+
+	// Seed bot users if they do not exist
+	var botsCount int
+	err = Pool.QueryRow(ctx, "SELECT COUNT(*) FROM users WHERE email LIKE '%@spam.com'").Scan(&botsCount)
+	if err == nil && botsCount == 0 {
+		log.Println("🌱 Seeding default bot accounts...")
+		testHash := "$2a$10$tM6n66nfeZgM.oN/F0cMPO6F3r4x02uTir1tS3e0a.1/k.kK4K.Ku" // bcrypt for password123
+		
+		var bot1ID, bot2ID, bot3ID string
+		_ = Pool.QueryRow(ctx, "INSERT INTO users (email, password_hash, role, status, ip, location, device) VALUES ('bot33@spam.com', $1, 'fan', 'active', '49.15.220.10', 'Kolkata, India', 'OnePlus 12') RETURNING id", testHash).Scan(&bot1ID)
+		_ = Pool.QueryRow(ctx, "INSERT INTO users (email, password_hash, role, status, ip, location, device) VALUES ('bot9@spam.com', $1, 'fan', 'active', '103.24.120.45', 'Delhi, India', 'Xiaomi 13') RETURNING id", testHash).Scan(&bot2ID)
+		_ = Pool.QueryRow(ctx, "INSERT INTO users (email, password_hash, role, status, ip, location, device) VALUES ('botalpha@spam.com', $1, 'fan', 'active', '185.220.101.4', 'St. Petersburg, Russia', 'Linux PC') RETURNING id", testHash).Scan(&bot3ID)
+
+		if bot1ID != "" {
+			_, _ = Pool.Exec(ctx, "INSERT INTO profiles (user_id, username, display_name, avatar, sub_price) VALUES ($1, 'spambot_33', 'Spam Bot 33', '/assets/39bc5c3eed51d62c1022c60686bb459a.png', 0)", bot1ID)
+		}
+		if bot2ID != "" {
+			_, _ = Pool.Exec(ctx, "INSERT INTO profiles (user_id, username, display_name, avatar, sub_price) VALUES ($1, 'mass_follow_9', 'Mass Follower 9', '/assets/39bc5c3eed51d62c1022c60686bb459a.png', 0)", bot2ID)
+		}
+		if bot3ID != "" {
+			_, _ = Pool.Exec(ctx, "INSERT INTO profiles (user_id, username, display_name, avatar, sub_price) VALUES ($1, 'dm_bot_alpha', 'DM Bot Alpha', '/assets/39bc5c3eed51d62c1022c60686bb459a.png', 0)", bot3ID)
+		}
+	}
+
+	return nil
+}
+
 
 func seedDefaultData(ctx context.Context) error {
 	var count int
@@ -277,8 +430,8 @@ func seedDefaultData(ctx context.Context) error {
 	}
 
 	if count > 0 {
-		// Database already has data, bypass seeding
-		return nil
+		// Database already has users; still ensure the feed has baseline content.
+		return seedDefaultContent(ctx)
 	}
 
 	log.Println("🌱 Seeding default creators and profiles into database...")
@@ -396,6 +549,104 @@ func seedDefaultData(ctx context.Context) error {
 	}
 
 	log.Println("🌱 Database seeding complete successfully.")
-	return nil
+	return seedDefaultContent(ctx)
 
+}
+
+func seedDefaultContent(ctx context.Context) error {
+	if err := seedDefaultPosts(ctx); err != nil {
+		return err
+	}
+	return seedDefaultStories(ctx)
+}
+
+func seedDefaultPosts(ctx context.Context) error {
+	var count int
+	if err := Pool.QueryRow(ctx, "SELECT COUNT(*) FROM posts").Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	log.Println("Seeding default public feed posts...")
+
+	_, err := Pool.Exec(ctx, `
+		INSERT INTO posts (creator_id, content, media_urls, media_type, is_premium, price)
+		SELECT u.id, seed.content, seed.media_urls, seed.media_type, seed.is_premium, seed.price
+		FROM (
+			VALUES
+				('demirose', 'Golden-hour set from today. New travel drops are live now.', ARRAY['/assets/1b01065d7e887ce3d8b379aabd6221a2.png']::text[], 'image', FALSE, 0.00),
+				('amouranth', 'Behind the stream setup. Full cosplay album is ready for subscribers.', ARRAY['/assets/33835d122eba2ad097de797e914a7b1b.png']::text[], 'image', FALSE, 0.00),
+				('lanarhoades', 'Fresh shoot preview. Premium gallery coming tonight.', ARRAY['/assets/082f4723389abb44b68b64dfc082268b.png']::text[], 'image', TRUE, 399.00),
+				('austinwolf', 'Push day progress check. Save this routine for your next gym session.', ARRAY['/assets/2e276540ed6f162458a34e8dc8f3f271.png']::text[], 'image', FALSE, 0.00)
+		) AS seed(username, content, media_urls, media_type, is_premium, price)
+		JOIN profiles p ON p.username = seed.username
+		JOIN users u ON u.id = p.user_id
+	`)
+	if err != nil {
+		return err
+	}
+
+	log.Println("🌱 Seeding default post reports...")
+	_, _ = Pool.Exec(ctx, `
+		INSERT INTO post_reports (post_id, user_id, reason)
+		SELECT p.id, u.id, 'Suspected adult content violation'
+		FROM posts p
+		CROSS JOIN (SELECT user_id as id FROM profiles WHERE username = 'sam_fan' LIMIT 1) u
+		WHERE p.content LIKE '%shoot%'
+		ON CONFLICT DO NOTHING
+	`)
+	_, _ = Pool.Exec(ctx, `
+		INSERT INTO post_reports (post_id, user_id, reason)
+		SELECT p.id, u.id, 'External monetization links in post'
+		FROM posts p
+		CROSS JOIN (SELECT user_id as id FROM profiles WHERE username = 'sam_fan' LIMIT 1) u
+		WHERE p.content LIKE '%travel%'
+		ON CONFLICT DO NOTHING
+	`)
+
+	// Let's seed comments
+	_, _ = Pool.Exec(ctx, `
+		INSERT INTO post_comments (post_id, user_id, text)
+		SELECT p.id, u.id, 'Is this content fully compliant?'
+		FROM posts p
+		CROSS JOIN (SELECT user_id as id FROM profiles WHERE username = 'sam_fan' LIMIT 1) u
+		WHERE p.content LIKE '%shoot%'
+	`)
+	_, _ = Pool.Exec(ctx, `
+		INSERT INTO post_comments (post_id, user_id, text)
+		SELECT p.id, u.id, 'Love the background!'
+		FROM posts p
+		CROSS JOIN (SELECT user_id as id FROM profiles WHERE username = 'sam_fan' LIMIT 1) u
+		WHERE p.content LIKE '%travel%'
+	`)
+
+	return nil
+}
+
+func seedDefaultStories(ctx context.Context) error {
+	var count int
+	if err := Pool.QueryRow(ctx, "SELECT COUNT(*) FROM stories WHERE expires_at > NOW()").Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	log.Println("Seeding default active stories...")
+
+	_, err := Pool.Exec(ctx, `
+		INSERT INTO stories (creator_id, story_url, location, expires_at)
+		SELECT u.id, seed.story_url, seed.location, NOW() + INTERVAL '24 hours'
+		FROM (
+			VALUES
+				('demirose', '/assets/0c0bf4c58678d852ea7588ef1045309e.png', 'Ibiza'),
+				('amouranth', '/assets/31ccb1dded9dd42d60e1b0ab43ae8750.png', 'Studio'),
+				('austinwolf', '/assets/5dc72593d711173af1fe7ab74be0fa56.png', 'Los Angeles')
+		) AS seed(username, story_url, location)
+		JOIN profiles p ON p.username = seed.username
+		JOIN users u ON u.id = p.user_id
+	`)
+	return err
 }

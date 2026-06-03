@@ -11,18 +11,60 @@ import { apiClient } from "@/lib/apiClient";
 import { PaymentModal } from "@/components/ui/PaymentModal";
 import { Modal } from "@/components/ui/Modal";
 import { VerifiedBadge } from "@/components/ui/VerifiedBadge";
+import { uploadToCloudinary, validateVideoFile } from "@/lib/cloudinaryClient";
+
+interface ChatContact {
+  id?: string;
+  username: string;
+  name: string;
+  avatar: string;
+  role?: string;
+  last_message?: string;
+  last_msg_time?: string;
+  verified: boolean;
+  callsEnabled: boolean;
+  callPricePerMin: number;
+  subPrice?: number;
+}
+
+interface BackendConversation {
+  id: string;
+  username: string;
+  name: string;
+  avatar?: string;
+  role: string;
+  last_message?: string;
+  last_msg_time?: string;
+}
+
+interface BackendVaultItem {
+  id: string;
+  name: string;
+  url: string;
+  type: string;
+  size: string;
+  usage_count?: number;
+  date: string;
+}
+
+interface BackendProfile {
+  username: string;
+  display_name: string;
+  avatar?: string;
+  sub_price?: number;
+}
 
 // Synthesized dial tone generator for WebRTC calling (No latency, self-contained)
 const playRingTone = () => {
   if (typeof window === "undefined") return () => {};
   try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    const AudioContextClass = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextClass) return () => {};
     const ctx = new AudioContextClass();
     
-    let osc1 = ctx.createOscillator();
-    let osc2 = ctx.createOscillator();
-    let gainNode = ctx.createGain();
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const gainNode = ctx.createGain();
     
     osc1.frequency.value = 440;
     osc2.frequency.value = 480;
@@ -42,9 +84,9 @@ const playRingTone = () => {
     osc1.start(0);
     osc2.start(0);
     
-    let time = ctx.currentTime;
+    const time = ctx.currentTime;
     playRing(time);
-    let interval = setInterval(() => {
+    const interval = setInterval(() => {
       playRing(ctx.currentTime);
     }, 6000);
     
@@ -174,7 +216,7 @@ const VoicePlayer: React.FC<VoicePlayerProps> = ({ src, isUser }) => {
 };
 
 function ChatContent() {
-  const { blockedUsers, toggleBlock, showToast, user, adjustBalance, walletBalance, subscriptions, refreshUserProfile } = useUser();
+  const { blockedUsers, toggleBlock, showToast, user, adjustBalance, walletBalance, subscriptions, refreshUserProfile, loginAsSeedUser } = useUser();
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryUser = searchParams.get("u");
@@ -203,11 +245,69 @@ function ChatContent() {
   const partnerAudioCtxRef = useRef<AudioContext | null>(null);
   const partnerStreamRef = useRef<MediaStream | null>(null);
 
-  const [creators, setCreators] = useState<any[]>([]);
+  const [creators, setCreators] = useState<ChatContact[]>([]);
   const [selectedCreator, setSelectedCreator] = useState<string | null>(null);
-  const [messages, setMessages] = useState<any[]>([]);
-  const [currentCreator, setCurrentCreator] = useState<any | null>(null);
+  const [messages, setMessages] = useState<(ChatMessage & { isUnlocked?: boolean })[]>([]);
+  const [currentCreator, setCurrentCreator] = useState<ChatContact | null>(null);
   const [inputText, setInputText] = useState("");
+  const [isPartnerTyping, setIsPartnerTyping] = useState(false);
+
+  const handleSimulateReply = async () => {
+    if (!currentCreator || isPartnerTyping || !user) return;
+    setIsPartnerTyping(true);
+    scrollToBottom();
+
+    const responses = [
+      "Hey! Can you send me some exclusive content? I have my wallet ready! 💎",
+      "OMG! I love your latest posts! Keep it up! ❤️",
+      "Are you going live anytime soon? I'd love to join your stream! 🎥",
+      "Hey, what are your call rates? Let's do a 1-on-1 video call! 📞",
+      "Just checked out your vault, those media items are incredible! 🔥"
+    ];
+    const messageText = responses[Math.floor(Math.random() * responses.length)];
+
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    const originalToken = localStorage.getItem("ch_token");
+    const partnerUsername = currentCreator.username;
+
+    let partnerEmail = "fan@creatorhub.com";
+    if (partnerUsername === "lanarhoades") partnerEmail = "lana@creatorhub.com";
+    else if (partnerUsername === "demirose") partnerEmail = "demi@creatorhub.com";
+    else if (partnerUsername === "amouranth") partnerEmail = "amouranth@creatorhub.com";
+    else if (partnerUsername === "austinwolf") partnerEmail = "austin@creatorhub.com";
+    else if (partnerUsername === "sam_fan") partnerEmail = "fan@creatorhub.com";
+
+    try {
+      const loginRes = await apiClient.post<{ token: string }>("/auth/login", {
+        email: partnerEmail,
+        password: "password123"
+      });
+      
+      localStorage.setItem("ch_token", loginRes.token);
+      await apiClient.post("/chat/messages", {
+        receiver_username: user?.username,
+        message: messageText,
+        media_url: "",
+        media_type: "",
+        is_ppv: false,
+        price: 0
+      });
+    } catch (err) {
+      console.error("Simulation helper failed:", err);
+    } finally {
+      if (originalToken) {
+        localStorage.setItem("ch_token", originalToken);
+      }
+      setIsPartnerTyping(false);
+      if (selectedCreator) {
+        await loadChatHistory(selectedCreator);
+      }
+      await fetchChats();
+      scrollToBottom();
+      showToast(`Received simulated message from @${partnerUsername}`);
+    }
+  };
   
   // Custom message attachments
   const [isPPV, setIsPPV] = useState(false);
@@ -215,6 +315,8 @@ function ChatContent() {
   const [mediaUrl, setMediaUrl] = useState("");
   const [mediaType, setMediaType] = useState("image");
   const [fileName, setFileName] = useState("");
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Recording voice notes states
   const [isRecording, setIsRecording] = useState(false);
@@ -372,7 +474,7 @@ function ChatContent() {
         canvasStream.getVideoTracks().forEach(track => partnerStream.addTrack(track));
 
         try {
-          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          const AudioContextClass = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
           if (AudioContextClass) {
             const partnerAudioCtx = new AudioContextClass();
             partnerAudioCtxRef.current = partnerAudioCtx;
@@ -519,7 +621,7 @@ function ChatContent() {
 
   useEffect(() => {
     if (queryUser) {
-      setSelectedCreator(queryUser);
+      window.setTimeout(() => setSelectedCreator(queryUser), 0);
       if (queryCall) {
         setTimeout(() => {
           startOutgoingCall(queryCall === "audio" ? "audio" : "video");
@@ -552,7 +654,7 @@ function ChatContent() {
 
   const loadContactProfile = async (username: string) => {
     try {
-      const profile = await apiClient.get<any>(`/users/creator/${username}`);
+      const profile = await apiClient.get<BackendProfile>(`/users/creator/${username}`);
       setCurrentCreator({
         name: profile.display_name,
         username: profile.username,
@@ -589,7 +691,7 @@ function ChatContent() {
 
   const fetchChats = async () => {
     try {
-      const data = await apiClient.get<any[]>("/chat/conversations");
+      const data = await apiClient.get<BackendConversation[]>("/chat/conversations");
       const list = data.map((c) => ({
         id: c.id,
         username: c.username,
@@ -621,7 +723,7 @@ function ChatContent() {
     }
 
     try {
-      const data = await apiClient.get<any[]>("/vault");
+      const data = await apiClient.get<BackendVaultItem[]>("/vault");
       const mapped = data.map((item) => ({
         id: item.id,
         name: item.name,
@@ -657,11 +759,15 @@ function ChatContent() {
 
   useEffect(() => {
     if (selectedCreator) {
-      loadChatHistory(selectedCreator);
-      loadContactProfile(selectedCreator);
+      window.setTimeout(() => {
+        loadChatHistory(selectedCreator);
+        loadContactProfile(selectedCreator);
+      }, 0);
     } else {
-      setCurrentCreator(null);
-      setMessages([]);
+      window.setTimeout(() => {
+        setCurrentCreator(null);
+        setMessages([]);
+      }, 0);
     }
   }, [selectedCreator, creators]);
 
@@ -738,8 +844,8 @@ function ChatContent() {
       
       await loadChatHistory(selectedCreator);
       await fetchChats();
-    } catch (err: any) {
-      showToast(err.message || "Failed to send message");
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : "Failed to send message");
     }
   };
 
@@ -780,8 +886,8 @@ function ChatContent() {
             await loadChatHistory(selectedCreator);
             await fetchChats();
             showToast("Voice note sent successfully!");
-          } catch (err: any) {
-            showToast(err.message || "Failed to send voice note");
+          } catch (err: unknown) {
+            showToast(err instanceof Error ? err.message : "Failed to send voice note");
           }
         };
       };
@@ -822,7 +928,7 @@ function ChatContent() {
       voiceStreamRef.current = null;
     }
     
-    showToast("Recording cancelled");
+    showToast("recording cancelled");
   };
 
   const sendVoiceNote = () => {
@@ -839,7 +945,7 @@ function ChatContent() {
 
   const triggerTip = () => {
     if (!selectedCreator) return;
-    setPaymentTitle(`Send Tip to @${selectedCreator}`);
+    setPaymentTitle(`send tip to @${selectedCreator}`);
     setPaymentPrice(15.00); 
     setIsPaymentOpen(true);
   };
@@ -857,8 +963,8 @@ function ChatContent() {
     if (paymentSource === "card") {
       try {
         await apiClient.post("/wallet/deposit", { amount: paymentPrice });
-      } catch (err: any) {
-        showToast(err.message || "Card deposit failed");
+      } catch (err: unknown) {
+        showToast(err instanceof Error ? err.message : "Card deposit failed");
         return;
       }
     }
@@ -885,8 +991,8 @@ function ChatContent() {
       refreshUserProfile();
       await loadChatHistory(selectedCreator);
       await fetchChats();
-    } catch (err: any) {
-      showToast(err.message || "Payment transaction failed");
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : "Payment transaction failed");
     }
   };
 
@@ -904,6 +1010,41 @@ function ChatContent() {
     showToast(`Attached ${item.name} from Vault`);
   };
 
+  const handleLocalMediaUpload = async (file?: File) => {
+    if (!file || !user) return;
+    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
+      showToast("Upload an image or video file");
+      return;
+    }
+
+    if (file.type.startsWith("video/")) {
+      showToast("Validating video file...");
+      const check = await validateVideoFile(file, {
+        maxDurationSeconds: 600, // 10 minutes
+        maxSizeBytes: 100 * 1024 * 1024, // 100 MB
+      });
+      if (!check.isValid) {
+        showToast(check.error || "Invalid video file");
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+    }
+
+    setIsUploadingMedia(true);
+    try {
+      const uploaded = await uploadToCloudinary(file, user.username, "chats");
+      setMediaUrl(uploaded.secure_url);
+      setMediaType(uploaded.resource_type === "video" ? "video" : "image");
+      setFileName(file.name);
+      showToast(`Attached ${file.name}`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Media upload failed");
+    } finally {
+      setIsUploadingMedia(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   const isBlocked = selectedCreator ? blockedUsers.includes(selectedCreator) : false;
 
   const filteredConversations = creators.filter((c) => 
@@ -915,7 +1056,7 @@ function ChatContent() {
     <AppShell>
       {/* 1. Mobile Header */}
       <MobileHeader>
-        <span className="text-sm font-bold text-text-muted mr-1 select-none">Messages</span>
+        <span className="text-sm font-bold text-text-muted mr-1 select-none">messages</span>
       </MobileHeader>
 
       {/* 2. Main Two-Panel Layout */}
@@ -927,14 +1068,14 @@ function ChatContent() {
         }`}>
           <div className="p-4 border-b border-border space-y-3">
             <div className="flex justify-between items-center">
-              <h2 className="text-base font-extrabold text-text-main">Direct Messages</h2>
+              <h2 className="text-base font-extrabold text-text-main">direct messages</h2>
               {user && user.role === "creator" && (
                 <Link
                   href="/studio/mass-message"
-                  className="text-[10px] font-black bg-primary/10 text-primary hover:bg-primary hover:text-white px-2.5 py-1 rounded-full uppercase tracking-wider flex items-center gap-0.5"
+                  className="text-[10px] font-black bg-primary/10 text-primary hover:bg-primary hover:text-white px-2.5 py-1 rounded-full flex items-center gap-0.5"
                 >
                   <span className="material-symbols-outlined text-[13px]">campaign</span>
-                  <span>Broadcast</span>
+                  <span>broadcast</span>
                 </Link>
               )}
             </div>
@@ -944,7 +1085,7 @@ function ChatContent() {
               <span className="material-symbols-outlined text-text-muted text-[18px] mr-1.5">search</span>
               <input
                 type="text"
-                placeholder="Search inbox..."
+                placeholder="search inbox..."
                 value={chatSearch}
                 onChange={(e) => setChatSearch(e.target.value)}
                 className="w-full text-xs font-semibold bg-transparent outline-none placeholder-text-muted text-text-main"
@@ -954,7 +1095,7 @@ function ChatContent() {
 
           <div className="flex-1 overflow-y-auto no-scrollbar">
             {filteredConversations.length === 0 ? (
-              <p className="text-xs text-text-muted text-center py-10">No chats found</p>
+              <p className="text-xs text-text-muted text-center py-10">no chats found</p>
             ) : (
               filteredConversations.map((c) => {
                 const active = selectedCreator === c.username;
@@ -989,12 +1130,12 @@ function ChatContent() {
                         </div>
                         {blocked && (
                           <span className="bg-red-500/10 text-red-500 text-[8px] font-extrabold px-1.5 py-0.5 rounded-full select-none shrink-0 ml-1">
-                            Blocked
+                            blocked
                           </span>
                         )}
                       </div>
                       <p className="text-[11px] text-text-muted truncate select-none">
-                        {c.last_message || `Chat with @${c.username}...`}
+                        {c.last_message || `chat with @${c.username}...`}
                       </p>
                     </div>
                   </button>
@@ -1052,7 +1193,7 @@ function ChatContent() {
                         <button
                           onClick={() => simulateIncomingCall("video")}
                           className="flex items-center justify-center h-8 w-8 rounded-full border border-border text-primary hover:bg-primary/5 cursor-pointer transition-colors"
-                          title="Simulate Fan Incoming Call"
+                          title="simulate fan incoming call"
                         >
                           <span className="material-symbols-outlined text-[18px] animate-pulse text-primary font-bold">call_received</span>
                         </button>
@@ -1062,14 +1203,14 @@ function ChatContent() {
                             <button
                               onClick={() => startOutgoingCall("audio")}
                               className="flex items-center justify-center h-8 w-8 rounded-full border border-border text-text-muted hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer transition-colors"
-                              title="Voice Call"
+                    title="voice call"
                             >
                               <span className="material-symbols-outlined text-[18px]">phone</span>
                             </button>
                             <button
                               onClick={() => startOutgoingCall("video")}
                               className="flex items-center justify-center h-8 w-8 rounded-full border border-border text-text-muted hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer transition-colors"
-                              title="Video Call"
+                    title="video call"
                             >
                               <span className="material-symbols-outlined text-[18px]">videocam</span>
                             </button>
@@ -1085,7 +1226,7 @@ function ChatContent() {
                     className="flex items-center gap-1 bg-success/15 text-success hover:bg-success hover:text-white px-3.5 py-1.5 rounded-full text-xs font-black transition-all disabled:opacity-50 cursor-pointer active:scale-95 shadow-sm"
                   >
                     <span className="material-symbols-outlined text-[16px]">payments</span>
-                    <span>Send Tip</span>
+                    <span>send tip</span>
                   </button>
 
                   <button
@@ -1095,7 +1236,7 @@ function ChatContent() {
                         ? "border-red-500 bg-red-500/10 text-red-500 hover:bg-red-500/20" 
                         : "border-border text-text-muted hover:bg-[hsl(var(--text-muted-hsl)/0.05)] hover:text-text-main"
                     }`}
-                    title={isBlocked ? "Unblock Creator" : "Block Creator"}
+                    title={isBlocked ? "unblock account" : "block account"}
                   >
                     <span className="material-symbols-outlined text-[18px]">block</span>
                   </button>
@@ -1107,8 +1248,8 @@ function ChatContent() {
                 {messages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-center space-y-2 select-none">
                     <span className="material-symbols-outlined text-[48px] text-text-muted animate-pulse">chat</span>
-                    <p className="text-xs font-bold text-text-main">Say Hello!</p>
-                    <p className="text-[11px] text-text-muted max-w-[220px]">Send a greeting message to start connecting with {currentCreator.name}!</p>
+                    <p className="text-xs font-bold text-text-main">say hello</p>
+                    <p className="text-[11px] text-text-muted max-w-[220px]">send a message to start connecting with {currentCreator.name}</p>
                   </div>
                 ) : (
                   messages.map((msg) => {
@@ -1186,24 +1327,24 @@ function ChatContent() {
               </div>
 
               {/* Chat Input Dock Composer */}
-              <div className="p-3 px-4 border-t border-border bg-surface shrink-0 space-y-3">
+              <div className="px-4 py-3 border-t border-border bg-surface shrink-0">
                 {isBlocked ? (
                   <div className="bg-red-500/10 border border-red-500/20 px-4 py-3 rounded-xl text-center select-none text-red-500 text-xs font-bold leading-relaxed">
-                    You have blocked this creator. Unblock to resume messaging.
+                    you blocked this account. unblock to message again.
                   </div>
                 ) : (
-                  <form onSubmit={handleSendMessage} className="space-y-2.5">
+                  <form onSubmit={handleSendMessage} className="space-y-2">
                     
                     {/* Media preview area */}
                     {mediaUrl && (
                       <div className="bg-background border border-border p-2.5 rounded-xl flex items-center justify-between gap-3 animate-fade-in select-none">
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <span className="material-symbols-outlined text-primary text-[24px]">
-                            {mediaType === "video" ? "videocam" : "image"}
+                          <span className="material-symbols-outlined text-primary text-[22px]">
+                            {mediaType === "video" ? "videocam" : mediaType === "audio" ? "graphic_eq" : "image"}
                           </span>
                           <div className="min-w-0">
                             <p className="text-xs font-bold text-text-main truncate max-w-[200px]">{fileName}</p>
-                            <p className="text-[9px] text-text-muted uppercase tracking-wider">Ready to attach</p>
+                            <p className="text-[9px] text-text-muted">ready to attach</p>
                           </div>
                         </div>
                         <button
@@ -1211,7 +1352,7 @@ function ChatContent() {
                           onClick={() => { setMediaUrl(""); setFileName(""); }}
                           className="text-red-500 hover:text-red-600 text-xs font-bold cursor-pointer"
                         >
-                          Remove
+                          remove
                         </button>
                       </div>
                     )}
@@ -1220,7 +1361,7 @@ function ChatContent() {
                     {isPPV && (
                       <div className="flex items-center gap-3 bg-background border border-border p-2.5 rounded-xl animate-fade-in select-none">
                         <div className="flex-grow">
-                          <p className="text-[10px] text-text-muted font-bold uppercase tracking-wider mb-1">Set PPV Unlock Price (INR)</p>
+                          <p className="text-[10px] text-text-muted font-bold mb-1">set ppv unlock price</p>
                           <div className="relative flex items-center bg-surface border border-border rounded-lg px-2.5 py-1 focus-within:border-primary">
                             <span className="text-xs font-bold text-text-muted mr-0.5">₹</span>
                             <input
@@ -1245,12 +1386,12 @@ function ChatContent() {
                     )}
 
                     {/* Main input text + send trigger */}
-                    <div className="flex gap-2 items-center">
+                    <div className="flex gap-2 items-end">
                       {isRecording ? (
-                        <div className="flex-grow flex items-center justify-between bg-primary/5 border border-primary/20 rounded-full px-4 py-2 select-none">
+                        <div className="flex-grow flex items-center justify-between bg-primary/5 border border-primary/20 rounded-full px-4 py-2 select-none min-h-11">
                           <div className="flex items-center gap-2 text-primary font-black text-xs">
                             <span className="h-2 w-2 rounded-full bg-primary animate-ping"></span>
-                            <span className="uppercase tracking-widest text-[9px]">Recording Voice Memo</span>
+                            <span className="text-[9px]">recording voice memo</span>
                           </div>
                           <div className="flex items-center gap-3">
                             <span className="text-xs font-mono font-black text-text-main">
@@ -1261,25 +1402,31 @@ function ChatContent() {
                               onClick={cancelRecording}
                               className="text-text-muted hover:text-red-500 text-xs font-bold transition-colors cursor-pointer"
                             >
-                              Cancel
+                              cancel
                             </button>
                             <button
                               type="button"
                               onClick={sendVoiceNote}
                               className="text-primary hover:text-primary-hover text-xs font-black transition-colors cursor-pointer"
                             >
-                              Send
+                              send
                             </button>
                           </div>
                         </div>
                       ) : (
-                        <div className="flex-grow relative flex items-center bg-background border border-border focus-within:border-primary rounded-full px-4 py-2 transition-all">
-                          <input
-                            type="text"
-                            placeholder={`Message @${currentCreator.username}...`}
+                        <div className="flex-grow relative flex items-center bg-background border border-border focus-within:border-primary rounded-full px-4 py-2.5 min-h-11 transition-all">
+                          <textarea
+                            rows={1}
+                            placeholder={`message @${currentCreator.username}...`}
                             value={inputText}
                             onChange={(e) => setInputText(e.target.value)}
-                            className="w-full text-xs font-medium bg-transparent outline-none text-text-main placeholder-text-muted"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                handleSendMessage(e as unknown as React.FormEvent);
+                              }
+                            }}
+                            className="w-full max-h-24 resize-none text-xs font-medium leading-5 bg-transparent outline-none text-text-main placeholder-text-muted no-scrollbar"
                           />
                         </div>
                       )}
@@ -1288,7 +1435,7 @@ function ChatContent() {
                         <button
                           type="submit"
                           disabled={!inputText.trim() && !mediaUrl}
-                          className="bg-primary text-white disabled:opacity-50 hover:bg-primary-hover active:scale-95 text-xs font-bold h-10 w-10 flex items-center justify-center rounded-full transition-all cursor-pointer shrink-0 shadow-sm"
+                          className="bg-primary text-white disabled:opacity-50 hover:bg-primary-hover active:scale-95 text-xs font-bold h-11 w-11 flex items-center justify-center rounded-full transition-all cursor-pointer shrink-0"
                         >
                           <span className="material-symbols-outlined text-[20px] font-bold">send</span>
                         </button>
@@ -1296,23 +1443,32 @@ function ChatContent() {
                     </div>
 
                     {/* Composer Toolbar (Attach files, lock prices) */}
-                    <div className="flex items-center gap-3 pt-1 border-t border-border/40 select-none">
+                    <div className="flex items-center gap-4 px-1 select-none">
                       <button
                         type="button"
-                        disabled={isRecording}
-                        onClick={() => showToast("Local media selector opened")}
+                        disabled={isRecording || isUploadingMedia}
+                        onClick={() => fileInputRef.current?.click()}
                         className="text-text-muted hover:text-primary flex items-center justify-center p-1 cursor-pointer transition-colors disabled:opacity-50"
-                        title="Upload local files"
+                        title="upload local files"
                       >
-                        <span className="material-symbols-outlined text-[20px]">add_photo_alternate</span>
+                        <span className="material-symbols-outlined text-[20px]">
+                          {isUploadingMedia ? "hourglass_top" : "add_photo_alternate"}
+                        </span>
                       </button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*,video/*"
+                        className="hidden"
+                        onChange={(event) => handleLocalMediaUpload(event.target.files?.[0])}
+                      />
 
                       <button
                         type="button"
                         disabled={isRecording}
                         onClick={() => setIsVaultOpen(true)}
                         className="text-text-muted hover:text-primary flex items-center justify-center p-1 cursor-pointer transition-colors disabled:opacity-50"
-                        title="Browse vault media"
+                        title="browse vault media"
                       >
                         <span className="material-symbols-outlined text-[20px]">folder_special</span>
                       </button>
@@ -1322,7 +1478,7 @@ function ChatContent() {
                         disabled={isRecording}
                         onClick={() => setIsPPV(!isPPV)}
                         className={`flex items-center justify-center p-1 cursor-pointer transition-colors ${isPPV ? "text-accent" : "text-text-muted hover:text-accent"} disabled:opacity-50`}
-                        title="Lock content with custom price (PPV)"
+                        title="lock content with custom price"
                       >
                         <span className="material-symbols-outlined text-[20px]" style={isPPV ? { fontVariationSettings: "'FILL' 1" } : undefined}>lock</span>
                       </button>
@@ -1332,7 +1488,7 @@ function ChatContent() {
                         disabled={isRecording}
                         onClick={startRecording}
                         className="text-text-muted hover:text-primary flex items-center justify-center p-1 cursor-pointer transition-colors disabled:opacity-50"
-                        title="Record voice note"
+                        title="record voice note"
                       >
                         <span className="material-symbols-outlined text-[20px]">mic</span>
                       </button>
@@ -1346,9 +1502,9 @@ function ChatContent() {
             /* Selected Conversation Placeholder */
             <div className="flex-grow flex flex-col items-center justify-center p-6 text-center select-none space-y-3">
               <span className="material-symbols-outlined text-[64px] text-text-muted animate-pulse">chat_bubble</span>
-              <h3 className="text-base font-extrabold text-text-main">Select a Conversation</h3>
+              <h3 className="text-base font-extrabold text-text-main">select a conversation</h3>
               <p className="text-xs text-text-muted max-w-[280px]">
-                Choose one of your active DM threads on the left to review your chat history!
+                choose a dm thread on the left to review your chat history
               </p>
             </div>
           )}
@@ -1394,24 +1550,24 @@ function ChatContent() {
 
       {/* 1-on-1 Calling Overlay UI Screens */}
       {callState !== "idle" && (
-        <div className="fixed inset-0 bg-black/95 z-[300] flex flex-col items-center justify-between p-6 select-none animate-fade-in text-white">
+        <div className="fixed inset-0 bg-neutral-950 z-[300] flex flex-col select-none animate-fade-in text-white">
           {/* Top Info bar */}
-          <div className="w-full flex items-center justify-between max-w-[400px] border-b border-white/10 pb-4">
-            <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-red-500 text-[18px] animate-pulse">videocam</span>
-              <span className="text-[10px] font-black uppercase tracking-wider text-white/80">
-                {callType === "video" ? "Secure Video Call" : "Secure Audio Call"}
+          <div className="absolute left-4 right-4 top-4 z-30 flex items-center justify-between">
+            <div className="flex items-center gap-2 rounded-full bg-black/35 px-3 py-2 backdrop-blur">
+              <span className="material-symbols-outlined text-primary text-[18px]">{callType === "video" ? "videocam" : "phone_in_talk"}</span>
+              <span className="text-[11px] font-bold text-white/85">
+                {callType === "video" ? "secure video call" : "secure audio call"}
               </span>
             </div>
             {callState === "active" && (
-              <span className="text-xs font-mono font-bold bg-white/10 px-3 py-1 rounded-full text-primary">
+              <span className="text-xs font-mono font-bold bg-black/35 px-3 py-2 rounded-full text-primary backdrop-blur">
                 {formatCallTime(callDuration)}
               </span>
             )}
           </div>
 
           {/* Core Content Area */}
-          <div className="flex-grow flex flex-col items-center justify-center space-y-6 w-full max-w-[400px]">
+          <div className="flex-1 min-h-0 flex flex-col items-center justify-center w-full pt-16 pb-32">
             {callState === "calling" && (
               <div className="text-center space-y-4 animate-pulse">
                 <div className="relative inline-block">
@@ -1424,7 +1580,7 @@ function ChatContent() {
                 </div>
                 <div className="space-y-1">
                   <h3 className="text-lg font-black">{activeCreatorDetails?.name || selectedCreator}</h3>
-                  <p className="text-xs text-white/60 font-semibold">Dialing/Ringing...</p>
+                  <p className="text-xs text-white/60 font-semibold">calling...</p>
                 </div>
               </div>
             )}
@@ -1434,20 +1590,20 @@ function ChatContent() {
                 <div className="relative inline-block animate-bounce">
                   <img
                     src="/assets/39bc5c3eed51d62c1022c60686bb459a.png"
-                    alt="Incoming Caller"
+                    alt="incoming caller"
                     className="h-28 w-28 rounded-full object-cover border-4 border-success shadow-2xl"
                   />
                   <div className="absolute inset-0 rounded-full border border-success scale-125 animate-ping" />
                 </div>
                 <div className="space-y-1">
-                  <h3 className="text-lg font-black">Sam Fan</h3>
-                  <p className="text-xs text-success font-black uppercase tracking-wider animate-pulse">Incoming Private Call</p>
+                  <h3 className="text-lg font-black">sam fan</h3>
+                  <p className="text-xs text-success font-black animate-pulse">incoming private call</p>
                 </div>
               </div>
             )}
 
             {callState === "active" && (
-              <div className="relative w-full aspect-[9/14] bg-neutral-900 border border-white/10 rounded-3xl overflow-hidden shadow-2xl flex items-center justify-center">
+              <div className="relative h-full w-full bg-black overflow-hidden flex items-center justify-center">
                 {/* Simulated Partner Screen Stream Feed */}
                 {callType === "video" && (
                   <video
@@ -1455,34 +1611,34 @@ function ChatContent() {
                     autoPlay
                     muted
                     playsInline
-                    className="absolute inset-0 w-full h-full object-cover filter blur-sm opacity-20 scale-105 pointer-events-none"
+                    className="absolute inset-0 w-full h-full object-cover"
                   />
                 )}
 
                 {/* Main looping overlay placeholder/details */}
-                <div className="relative z-10 text-center space-y-3">
+                <div className="absolute left-4 bottom-36 z-10 rounded-full bg-black/45 px-3 py-2 backdrop-blur flex items-center gap-2">
                   <img
                     src={user?.role === "creator" ? "/assets/39bc5c3eed51d62c1022c60686bb459a.png" : activeCreatorDetails?.avatar}
-                    alt="Partner"
-                    className="h-24 w-24 rounded-full object-cover border-2 border-white/20 mx-auto shadow-md"
+                    alt="partner"
+                    className="h-8 w-8 rounded-full object-cover border border-white/20"
                   />
                   <div>
-                    <h4 className="text-sm font-black">
-                      {user?.role === "creator" ? "Sam Fan" : activeCreatorDetails?.name}
+                    <h4 className="text-xs font-black">
+                      {user?.role === "creator" ? "sam fan" : activeCreatorDetails?.name}
                     </h4>
-                    <p className="text-[10px] text-white/60 font-bold uppercase tracking-wider mt-1 select-none">
-                      Connected • {isMuted ? "Audio Muted" : "Active Sound"}
+                    <p className="text-[10px] text-white/60 font-bold mt-0.5 select-none">
+                      {isMuted ? "muted" : "active sound"}
                     </p>
                   </div>
                 </div>
 
                 {/* Local Camera Draggable/Drift-free Draggable Video PIP Box */}
                 {callType === "video" && (
-                  <div className="absolute bottom-4 right-4 w-[100px] h-[150px] sm:w-[120px] sm:h-[180px] bg-black border border-white/20 rounded-2xl overflow-hidden shadow-2xl z-20">
+                  <div className="absolute bottom-28 right-4 w-[34vw] max-w-[360px] min-w-[180px] aspect-[3/4] bg-black border border-white/20 rounded-2xl overflow-hidden z-20">
                     {isCamOff ? (
                       <div className="w-full h-full flex flex-col items-center justify-center text-[10px] font-bold text-white/50 bg-neutral-950 p-2 text-center">
-                        <span className="material-symbols-outlined text-[16px] mb-1">videocam_off</span>
-                        <span>Cam Off</span>
+                        <span className="material-symbols-outlined text-[18px] mb-1">videocam_off</span>
+                        <span>camera off</span>
                       </div>
                     ) : (
                       <video
@@ -1500,31 +1656,31 @@ function ChatContent() {
           </div>
 
           {/* Bottom Billing Info & Action Bar */}
-          <div className="w-full max-w-[400px] flex flex-col items-center gap-4">
+          <div className="absolute bottom-0 left-0 right-0 z-30 flex flex-col items-center gap-4 bg-gradient-to-t from-black via-black/75 to-transparent px-4 pb-5 pt-16">
             {/* Real-Time Billing status badge overlay */}
-            <div className="bg-white/10 border border-white/20 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-wider text-center select-none w-full">
+            <div className="rounded-full bg-white/10 px-4 py-2 text-[11px] font-bold text-center select-none backdrop-blur">
               {user?.role === "fan" ? (
-                <span>Rate: ₹{activeCreatorDetails?.callPricePerMin || "5.00"}/min • billed from wallet</span>
+                <span>rs {activeCreatorDetails?.callPricePerMin || "5.00"}/min · billed from wallet</span>
               ) : (
-                <span>Rate: ₹{activeCreatorDetails?.callPricePerMin || "5.00"}/min • payouts loading</span>
+                <span>rs {activeCreatorDetails?.callPricePerMin || "5.00"}/min · payouts loading</span>
               )}
             </div>
 
             {/* Calling Command Buttons bar */}
-            <div className="flex gap-4 items-center justify-center pb-2 select-none">
+            <div className="flex gap-4 items-center justify-center select-none">
               {callState === "ringing" ? (
                 <>
                   <button
                     onClick={endCall}
                     className="h-14 w-14 rounded-full bg-red-600 hover:bg-red-700 active:scale-95 flex items-center justify-center cursor-pointer transition-transform text-white"
-                    title="Decline"
+                    title="decline"
                   >
                     <span className="material-symbols-outlined text-[26px]">call_end</span>
                   </button>
                   <button
                     onClick={acceptIncomingCall}
                     className="h-14 w-14 rounded-full bg-green-600 hover:bg-green-700 active:scale-95 flex items-center justify-center cursor-pointer transition-transform text-white animate-pulse"
-                    title="Accept Call"
+                    title="accept call"
                   >
                     <span className="material-symbols-outlined text-[26px]">call</span>
                   </button>
@@ -1538,7 +1694,7 @@ function ChatContent() {
                         className={`h-12 w-12 rounded-full border transition-all flex items-center justify-center cursor-pointer ${
                           isMuted ? "bg-red-500 border-red-500 text-white" : "border-white/20 text-white hover:bg-white/10"
                         }`}
-                        title={isMuted ? "Unmute Mic" : "Mute Mic"}
+                        title={isMuted ? "unmute mic" : "mute mic"}
                       >
                         <span className="material-symbols-outlined text-[20px]">
                           {isMuted ? "mic_off" : "mic"}
@@ -1548,7 +1704,7 @@ function ChatContent() {
                       <button
                         onClick={endCall}
                         className="h-14 w-14 rounded-full bg-red-600 hover:bg-red-700 active:scale-90 flex items-center justify-center cursor-pointer transition-transform text-white shadow-lg"
-                        title="End Call"
+                        title="end call"
                       >
                         <span className="material-symbols-outlined text-[26px]">call_end</span>
                       </button>
@@ -1559,7 +1715,7 @@ function ChatContent() {
                           className={`h-12 w-12 rounded-full border transition-all flex items-center justify-center cursor-pointer ${
                             isCamOff ? "bg-red-500 border-red-500 text-white" : "border-white/20 text-white hover:bg-white/10"
                           }`}
-                          title={isCamOff ? "Turn Camera On" : "Turn Camera Off"}
+                          title={isCamOff ? "turn camera on" : "turn camera off"}
                         >
                           <span className="material-symbols-outlined text-[20px]">
                             {isCamOff ? "videocam_off" : "videocam"}
@@ -1573,7 +1729,7 @@ function ChatContent() {
                     <button
                       onClick={endCall}
                       className="h-14 w-14 rounded-full bg-red-600 hover:bg-red-700 active:scale-90 flex items-center justify-center cursor-pointer transition-transform text-white"
-                      title="Cancel Call"
+                      title="cancel call"
                     >
                       <span className="material-symbols-outlined text-[26px]">call_end</span>
                     </button>
@@ -1592,7 +1748,7 @@ export default function ChatPage() {
   return (
     <Suspense fallback={
       <div className="flex h-screen w-full items-center justify-center bg-background text-text-muted">
-        <span className="animate-pulse">Loading Chat...</span>
+        <span className="animate-pulse">loading chat...</span>
       </div>
     }>
       <ChatContent />

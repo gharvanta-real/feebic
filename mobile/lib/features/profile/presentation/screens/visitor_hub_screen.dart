@@ -1,183 +1,298 @@
 import 'package:flutter/material.dart';
-import '../../../../core/state/demo_app_state.dart';
+import '../../../../core/di/injection.dart';
+import '../../../../core/network/api_client.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../explore/presentation/screens/explore_screen.dart';
 import '../../../wallet/presentation/screens/wallet_screen.dart';
-import 'saved_collections_screen.dart';
 import '../widgets/dashboard_widgets.dart';
-import '../widgets/unlocked_media_grid.dart';
 
-class VisitorHubScreen extends StatelessWidget {
+class VisitorHubScreen extends StatefulWidget {
   const VisitorHubScreen({super.key});
+
+  @override
+  State<VisitorHubScreen> createState() => _VisitorHubScreenState();
+}
+
+class _VisitorHubScreenState extends State<VisitorHubScreen> {
+  bool _isLoading = true;
+  double _balance = 0;
+  int _savedCount = 0;
+  int _unlockedCount = 0;
+  List<Map<String, dynamic>> _subscriptions = [];
+  List<Map<String, dynamic>> _transactions = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    try {
+      await Future.wait([
+        _loadWallet(),
+        _loadSubscriptions(),
+        _loadBookmarks(),
+      ]);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadWallet() async {
+    try {
+      final response = await getIt<ApiClient>().get('/wallet');
+      final data = Map<String, dynamic>.from(response.data as Map);
+      if (!mounted) return;
+      setState(() {
+        _balance = ((data['balance'] ?? 0) as num).toDouble();
+        final txns = data['transactions'] is List
+            ? (data['transactions'] as List)
+            : <dynamic>[];
+        _transactions = txns
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+        _unlockedCount = _transactions
+            .where((t) =>
+                (t['type']?.toString() ?? '') == 'unlock' ||
+                (t['title']?.toString() ?? '').toLowerCase().contains('unlock'))
+            .length;
+      });
+    } catch (e) {
+      debugPrint('VisitorHub: wallet load error: $e');
+    }
+  }
+
+  Future<void> _loadSubscriptions() async {
+    try {
+      final response = await getIt<ApiClient>().get('/users/subscriptions');
+      final data = response.data;
+      List<dynamic> subs = [];
+      if (data is List) {
+        subs = data;
+      } else if (data is Map && data['subscriptions'] is List) {
+        subs = data['subscriptions'] as List;
+      }
+      if (!mounted) return;
+      setState(() {
+        _subscriptions = subs
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      });
+    } catch (e) {
+      debugPrint('VisitorHub: subscriptions load error: $e');
+    }
+  }
+
+  Future<void> _loadBookmarks() async {
+    try {
+      final response = await getIt<ApiClient>().get('/posts/bookmarks');
+      final List<dynamic> raw = response.data is List
+          ? response.data as List
+          : (response.data['posts'] ?? []) as List;
+      if (!mounted) return;
+      setState(() {
+        _savedCount = raw.length;
+      });
+    } catch (e) {
+      debugPrint('VisitorHub: bookmarks load error: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final success = isDark ? AppColors.darkSuccess : AppColors.lightSuccess;
 
-    return AnimatedBuilder(
-      animation: DemoAppState.instance,
-      builder: (context, _) {
-        final state = DemoAppState.instance;
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Visitor Hub'),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 19),
-              onPressed: () => Navigator.pop(context),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Visitor Hub'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 19),
+          onPressed: () => Navigator.pop(context),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, size: 20),
+            onPressed: _loadData,
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _loadData,
+              child: ListView(
+                padding: AppSpacing.pAllMD,
+                children: [
+                  // Metric cards
+                  GridView.count(
+                    crossAxisCount: 2,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    mainAxisSpacing: AppSpacing.sm,
+                    crossAxisSpacing: AppSpacing.sm,
+                    childAspectRatio: 1.25,
+                    children: [
+                      MetricCard(
+                        label: 'Wallet balance',
+                        value: 'Rs ${_balance.toStringAsFixed(2)}',
+                        icon: Icons.account_balance_wallet_rounded,
+                        accent: success,
+                      ),
+                      MetricCard(
+                        label: 'Unlocked',
+                        value: '$_unlockedCount',
+                        icon: Icons.lock_open_rounded,
+                      ),
+                      MetricCard(
+                        label: 'Saved posts',
+                        value: '$_savedCount',
+                        icon: Icons.bookmark_rounded,
+                      ),
+                      MetricCard(
+                        label: 'Subscriptions',
+                        value: '${_subscriptions.length}',
+                        icon: Icons.verified_user_rounded,
+                      ),
+                    ],
+                  ),
+                  AppSpacing.gapLG,
+
+                  // Quick Actions
+                  DashboardSection(
+                    title: 'Quick Actions',
+                    children: [
+                      ActionTile(
+                        icon: Icons.explore_rounded,
+                        title: 'Discover creators',
+                        subtitle: 'Find new verified creators and categories',
+                        onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const ExploreScreen())),
+                      ),
+                      ActionTile(
+                        icon: Icons.add_card_rounded,
+                        title: 'Add wallet funds',
+                        subtitle:
+                            'Top up credits for unlocks, tips, and subscriptions',
+                        onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const WalletScreen())),
+                      ),
+                    ],
+                  ),
+
+                  // Active Subscriptions
+                  if (_subscriptions.isNotEmpty)
+                    DashboardSection(
+                      title: 'Active Subscriptions',
+                      children: _subscriptions.map((sub) {
+                        final creatorUsername =
+                            sub['username']?.toString() ?? 'Creator';
+                        final expiresAt =
+                            sub['expires_at']?.toString() ?? '';
+                        String expiryText = '';
+                        if (expiresAt.isNotEmpty) {
+                          try {
+                            final dt = DateTime.parse(expiresAt).toLocal();
+                            expiryText =
+                                'Renews ${dt.day}/${dt.month}/${dt.year}';
+                          } catch (_) {
+                            expiryText = 'Active subscription';
+                          }
+                        }
+                        return ActionTile(
+                          icon: Icons.person_rounded,
+                          title: '@$creatorUsername',
+                          subtitle: expiryText.isNotEmpty
+                              ? expiryText
+                              : 'Active subscription',
+                          badge: 'VIP',
+                          onTap: () => _showSubSheet(context, sub),
+                        );
+                      }).toList(),
+                    )
+                  else
+                    DashboardSection(
+                      title: 'Subscriptions',
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: AppSpacing.md),
+                          child: Center(
+                            child: Text(
+                              'No active subscriptions yet.\nDiscover creators and subscribe to unlock exclusive content.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark
+                                    ? AppColors.darkTextMuted
+                                    : AppColors.lightTextMuted,
+                                height: 1.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                  // Recent Activity (from real transaction log)
+                  if (_transactions.isNotEmpty)
+                    DashboardSection(
+                      title: 'Recent Activity',
+                      children: _transactions.take(5).map((tx) {
+                        final amount =
+                            ((tx['amount'] ?? 0) as num).toDouble();
+                        final title =
+                            tx['title']?.toString() ?? 'Transaction';
+                        final isAdd = amount >= 0;
+                        return ActivityRow(
+                          icon: isAdd
+                              ? Icons.arrow_downward_rounded
+                              : Icons.arrow_upward_rounded,
+                          title: title,
+                          subtitle: 'Rs ${amount.abs().toStringAsFixed(2)}',
+                          positive: isAdd,
+                        );
+                      }).toList(),
+                    )
+                  else
+                    DashboardSection(
+                      title: 'Recent Activity',
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: AppSpacing.md),
+                          child: Center(
+                            child: Text(
+                              'No wallet activity yet.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark
+                                    ? AppColors.darkTextMuted
+                                    : AppColors.lightTextMuted,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
             ),
-          ),
-          body: ListView(
-            padding: AppSpacing.pAllMD,
-            children: [
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: AppSpacing.sm,
-                crossAxisSpacing: AppSpacing.sm,
-                childAspectRatio: 1.25,
-                children: [
-                  MetricCard(
-                    label: 'Wallet balance',
-                    value:
-                        'Rs ${(state.fanBalance / 1000).toStringAsFixed(1)}K',
-                    icon: Icons.account_balance_wallet_rounded,
-                    accent: success,
-                  ),
-                  MetricCard(
-                    label: 'Unlocked',
-                    value: '${state.purchasedMedia.length}',
-                    icon: Icons.lock_open_rounded,
-                  ),
-                  MetricCard(
-                    label: 'Saved posts',
-                    value: '${state.savedPostIds.length}',
-                    icon: Icons.bookmark_rounded,
-                  ),
-                  MetricCard(
-                    label: 'Subscriptions',
-                    value: '${state.subscribedCreators.length + 3}',
-                    icon: Icons.verified_user_rounded,
-                  ),
-                ],
-              ),
-              AppSpacing.gapLG,
-              DashboardSection(
-                title: 'Quick Actions',
-                children: [
-                  ActionTile(
-                    icon: Icons.explore_rounded,
-                    title: 'Discover creators',
-                    subtitle: 'Find new verified creators and categories',
-                    onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const ExploreScreen())),
-                  ),
-                  ActionTile(
-                    icon: Icons.add_card_rounded,
-                    title: 'Add wallet funds',
-                    subtitle:
-                        'Top up credits for unlocks, tips, and subscriptions',
-                    onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const WalletScreen())),
-                  ),
-                  ActionTile(
-                    icon: Icons.bookmark_rounded,
-                    title: 'Saved collection',
-                    subtitle: 'Private saved posts and locked previews',
-                    badge: '${state.savedPostIds.length}',
-                    onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const SavedCollectionsScreen())),
-                  ),
-                ],
-              ),
-              DashboardSection(
-                title: 'Subscriptions',
-                children: [
-                  ActionTile(
-                    icon: Icons.person_rounded,
-                    title: 'lucia_fit',
-                    subtitle: 'VIP tier - renews June 30, 2026',
-                    badge: 'VIP',
-                    onTap: () => _showSheet(context, 'lucia_fit subscription', [
-                      'Tier: VIP',
-                      'Monthly rate: Rs 399',
-                      'Benefits: locked feed, chat replies, polls',
-                    ]),
-                  ),
-                  ActionTile(
-                    icon: Icons.palette_rounded,
-                    title: 'alexandra_art',
-                    subtitle: 'Superfan tier - alerts enabled',
-                    badge: 'alerts',
-                    onTap: () =>
-                        _showSheet(context, 'alexandra_art subscription', [
-                      'Tier: Superfan',
-                      'Last unlock: digital canvas trailer',
-                      'Alerts: enabled',
-                    ]),
-                  ),
-                ],
-              ),
-              DashboardSection(
-                title: 'Spending Analytics',
-                trailing: TextButton(
-                    onPressed: () {}, child: const Text('This month')),
-                children: const [
-                  MiniBarChart(
-                    values: [4, 8, 3, 10, 7, 12, 6],
-                    labels: ['M', 'T', 'W', 'T', 'F', 'S', 'S'],
-                  ),
-                  ActivityRow(
-                    icon: Icons.savings_rounded,
-                    title: 'Budget healthy',
-                    subtitle: 'Rs 2,100 below your monthly unlock budget',
-                    positive: true,
-                  ),
-                ],
-              ),
-              DashboardSection(
-                title: 'Unlocked Gallery Preview',
-                children: const [
-                  UnlockedMediaGrid(),
-                ],
-              ),
-              DashboardSection(
-                title: 'Recent Activity',
-                children: const [
-                  ActivityRow(
-                    icon: Icons.lock_open_rounded,
-                    title: 'Unlocked travel BTS set',
-                    subtitle: 'Added to unlocked gallery',
-                    positive: true,
-                  ),
-                  ActivityRow(
-                    icon: Icons.chat_bubble_rounded,
-                    title: 'Creator replied to your message',
-                    subtitle: 'Open chats to continue',
-                  ),
-                  ActivityRow(
-                    icon: Icons.notifications_active_rounded,
-                    title: 'New VIP post alert',
-                    subtitle: 'lucia_fit posted premium tutorial',
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 
-  void _showSheet(BuildContext context, String title, List<String> rows) {
+  void _showSubSheet(BuildContext context, Map<String, dynamic> sub) {
+    final creatorUsername = sub['username']?.toString() ?? 'Creator';
+    final subPrice = sub['price']?.toString() ?? sub['subPrice']?.toString() ?? 'N/A';
     showModalBottomSheet(
       context: context,
       builder: (_) => SafeArea(
@@ -185,17 +300,24 @@ class VisitorHubScreen extends StatelessWidget {
           shrinkWrap: true,
           padding: AppSpacing.pAllMD,
           children: [
-            Text(title,
-                style:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('@$creatorUsername subscription',
+                style: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold)),
             AppSpacing.gapSM,
-            ...rows.map((row) => ListTile(
-                  leading: const Icon(Icons.check_circle_outline_rounded),
-                  title: Text(row),
-                )),
+            ListTile(
+              leading: const Icon(Icons.check_circle_outline_rounded),
+              title: const Text('Monthly rate'),
+              subtitle: Text('Rs $subPrice'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.check_circle_outline_rounded),
+              title: const Text('Status'),
+              subtitle: Text(sub['status']?.toString() ?? 'active'),
+            ),
           ],
         ),
       ),
     );
   }
 }
+

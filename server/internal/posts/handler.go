@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +29,16 @@ type CreatePostRequest struct {
 	TeaserUrl    string                 `json:"teaser_url"`
 	PublishAt    string                 `json:"publish_at"`
 	TargetListID string                 `json:"target_list_id"`
+	Status       string                 `json:"status"`
+	Visibility   string                 `json:"visibility"`
+}
+
+type UpdatePostRequest struct {
+	Content    *string  `json:"content"`
+	IsPremium  *bool    `json:"is_premium"`
+	Price      *float64 `json:"price"`
+	Status     string   `json:"status"`
+	Visibility string   `json:"visibility"`
 }
 
 type CommentRequest struct {
@@ -85,15 +97,18 @@ func CreatePost(c *fiber.Ctx) error {
 		targetListID = &req.TargetListID
 	}
 
+	status := normalizePostStatus(req.Status)
+	visibility := normalizePostVisibility(req.Visibility)
+
 	var teaserUrl *string
 	if req.TeaserUrl != "" {
 		teaserUrl = &req.TeaserUrl
 	}
 
 	_, err = database.Pool.Exec(ctx,
-		`INSERT INTO posts (creator_id, content, media_urls, media_type, is_premium, price, poll, fundraiser, publish_at, teaser_url, target_list_id) 
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-		userID, req.Content, req.MediaUrls, req.MediaType, req.IsPremium, req.Price, pollJSON, fundraiserJSON, publishAt, teaserUrl, targetListID,
+		`INSERT INTO posts (creator_id, content, media_urls, media_type, is_premium, price, poll, fundraiser, publish_at, teaser_url, target_list_id, status, visibility) 
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		userID, req.Content, req.MediaUrls, req.MediaType, req.IsPremium, req.Price, pollJSON, fundraiserJSON, publishAt, teaserUrl, targetListID, status, visibility,
 	)
 
 	if err != nil {
@@ -127,37 +142,112 @@ func GetFeed(c *fiber.Ctx) error {
 	}
 
 	// Retrieve posts joined with creator profiles
-	rows, err := database.Pool.Query(ctx,
-		`SELECT p.id, p.creator_id, COALESCE(p.content, ''), p.media_urls, COALESCE(p.media_type, ''), 
-		        p.is_premium, p.price, COALESCE(p.poll, '{}'::jsonb), COALESCE(p.fundraiser, '{}'::jsonb),
-		        COALESCE(p.reposted_from_id::text, ''), p.created_at, pr.username, pr.display_name, COALESCE(pr.avatar, ''),
-		        (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) AS likes_count,
-		        (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
-		        CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
-		        	SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $1::uuid
-		        ) END AS is_liked,
-		        CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
-		        	SELECT 1 FROM post_bookmarks pb WHERE pb.post_id = p.id AND pb.user_id = $1::uuid
-		        ) END AS is_bookmarked,
-		        CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
-		        	SELECT 1 FROM post_unlocks pu WHERE pu.post_id = p.id AND pu.user_id = $1::uuid
-		        ) END AS is_unlocked,
-		        COALESCE(rp.username, ''),
-		        p.publish_at, COALESCE(p.teaser_url, ''), COALESCE(p.target_list_id::text, '')
-		 FROM posts p
-		 JOIN profiles pr ON p.creator_id = pr.user_id
-		 LEFT JOIN profiles rp ON p.creator_id = rp.user_id
-		 WHERE (CASE WHEN $1::uuid IS NULL THEN TRUE ELSE NOT EXISTS(
-		 	 SELECT 1 FROM post_reports r WHERE r.post_id = p.id AND r.user_id = $1::uuid
-		 ) END)
-		   AND (p.publish_at IS NULL OR p.publish_at <= NOW() OR p.creator_id = $1::uuid)
-		   AND (p.target_list_id IS NULL OR p.creator_id = $1::uuid OR CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
-		      SELECT 1 FROM custom_list_members clm 
-		      WHERE clm.list_id = p.target_list_id AND clm.user_id = $1::uuid
-		   ) END)
-		 ORDER BY p.created_at DESC`,
-		nullableUUID(viewerID),
-	)
+	var rows pgx.Rows
+	var err error
+	usernameFilter := c.Query("username")
+	page := boundedQueryInt(c, "page", 1, 1, 100000)
+	limit := boundedQueryInt(c, "limit", 10, 1, 30)
+	offset := (page - 1) * limit
+	sortMode := strings.ToLower(c.Query("sort", "organic"))
+	orderBy := "p.created_at DESC"
+	if usernameFilter == "" && sortMode != "latest" {
+		if scoreErr := refreshFeedScores(ctx); scoreErr == nil {
+			orderBy = `(COALESCE(fs.score, 0) + CASE WHEN $1::uuid IS NULL THEN 0 ELSE CASE WHEN EXISTS(
+			      SELECT 1 FROM subscriptions s
+			      WHERE s.fan_id = $1::uuid AND s.creator_id = p.creator_id AND s.status = 'active' AND s.expires_at > NOW()
+			   ) THEN 18 ELSE 0 END END) DESC, p.created_at DESC`
+		}
+	}
+	if usernameFilter != "" {
+		rows, err = database.Pool.Query(ctx,
+			`SELECT p.id, p.creator_id, COALESCE(p.content, ''), p.media_urls, COALESCE(p.media_type, ''), 
+			        p.is_premium, p.price, COALESCE(p.poll, '{}'::jsonb), COALESCE(p.fundraiser, '{}'::jsonb),
+			        COALESCE(p.reposted_from_id::text, ''), p.created_at, pr.username, pr.display_name, COALESCE(pr.avatar, ''),
+			        (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) AS likes_count,
+			        (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
+			        CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
+			        	SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $1::uuid
+			        ) END AS is_liked,
+			        CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
+			        	SELECT 1 FROM post_bookmarks pb WHERE pb.post_id = p.id AND pb.user_id = $1::uuid
+			        ) END AS is_bookmarked,
+			        CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
+			        	SELECT 1 FROM post_unlocks pu WHERE pu.post_id = p.id AND pu.user_id = $1::uuid
+			        ) END AS is_unlocked,
+			        COALESCE(rp.username, ''),
+			        p.publish_at, COALESCE(p.teaser_url, ''), COALESCE(p.target_list_id::text, ''),
+			        COALESCE(p.status, 'published'), COALESCE(p.visibility, 'public')
+			 FROM posts p
+			 JOIN profiles pr ON p.creator_id = pr.user_id
+			 LEFT JOIN profiles rp ON p.creator_id = rp.user_id
+			 WHERE (CASE WHEN $1::uuid IS NULL THEN TRUE ELSE NOT EXISTS(
+			 	 SELECT 1 FROM post_reports r WHERE r.post_id = p.id AND r.user_id = $1::uuid
+			 ) END)
+			   AND COALESCE(p.status, 'published') = 'published'
+			   AND (p.publish_at IS NULL OR p.publish_at <= NOW() OR p.creator_id = $1::uuid)
+			   AND (p.target_list_id IS NULL OR p.creator_id = $1::uuid OR CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
+			      SELECT 1 FROM custom_list_members clm 
+			      WHERE clm.list_id = p.target_list_id AND clm.user_id = $1::uuid
+			   ) END)
+			   AND (
+			      COALESCE(p.visibility, 'public') = 'public'
+			      OR p.creator_id = $1::uuid
+			      OR (COALESCE(p.visibility, 'public') = 'subscribers' AND CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
+			         SELECT 1 FROM subscriptions s
+			         WHERE s.fan_id = $1::uuid AND s.creator_id = p.creator_id AND s.status = 'active' AND s.expires_at > NOW()
+			      ) END)
+			   )
+			   AND pr.username = $2 AND pr.hidden = false
+			 ORDER BY p.created_at DESC
+			 LIMIT $3 OFFSET $4`,
+			nullableUUID(viewerID), usernameFilter, limit, offset,
+		)
+	} else {
+		rows, err = database.Pool.Query(ctx,
+			fmt.Sprintf(`SELECT p.id, p.creator_id, COALESCE(p.content, ''), p.media_urls, COALESCE(p.media_type, ''), 
+			        p.is_premium, p.price, COALESCE(p.poll, '{}'::jsonb), COALESCE(p.fundraiser, '{}'::jsonb),
+			        COALESCE(p.reposted_from_id::text, ''), p.created_at, pr.username, pr.display_name, COALESCE(pr.avatar, ''),
+			        (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) AS likes_count,
+			        (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
+			        CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
+			        	SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $1::uuid
+			        ) END AS is_liked,
+			        CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
+			        	SELECT 1 FROM post_bookmarks pb WHERE pb.post_id = p.id AND pb.user_id = $1::uuid
+			        ) END AS is_bookmarked,
+			        CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
+			        	SELECT 1 FROM post_unlocks pu WHERE pu.post_id = p.id AND pu.user_id = $1::uuid
+			        ) END AS is_unlocked,
+			        COALESCE(rp.username, ''),
+			        p.publish_at, COALESCE(p.teaser_url, ''), COALESCE(p.target_list_id::text, ''),
+			        COALESCE(p.status, 'published'), COALESCE(p.visibility, 'public')
+			 FROM posts p
+			 JOIN profiles pr ON p.creator_id = pr.user_id
+			 LEFT JOIN profiles rp ON p.creator_id = rp.user_id
+			 LEFT JOIN feed_scores fs ON fs.post_id = p.id
+			 WHERE (CASE WHEN $1::uuid IS NULL THEN TRUE ELSE NOT EXISTS(
+			 	 SELECT 1 FROM post_reports r WHERE r.post_id = p.id AND r.user_id = $1::uuid
+			 ) END)
+			   AND COALESCE(p.status, 'published') = 'published'
+			   AND (p.publish_at IS NULL OR p.publish_at <= NOW() OR p.creator_id = $1::uuid)
+			   AND (p.target_list_id IS NULL OR p.creator_id = $1::uuid OR CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
+			      SELECT 1 FROM custom_list_members clm 
+			      WHERE clm.list_id = p.target_list_id AND clm.user_id = $1::uuid
+			   ) END)
+			   AND (
+			      COALESCE(p.visibility, 'public') = 'public'
+			      OR p.creator_id = $1::uuid
+			      OR (COALESCE(p.visibility, 'public') = 'subscribers' AND CASE WHEN $1::uuid IS NULL THEN FALSE ELSE EXISTS(
+			         SELECT 1 FROM subscriptions s
+			         WHERE s.fan_id = $1::uuid AND s.creator_id = p.creator_id AND s.status = 'active' AND s.expires_at > NOW()
+			      ) END)
+			   )
+			   AND pr.hidden = false
+			 ORDER BY %s
+			 LIMIT $2 OFFSET $3`, orderBy),
+			nullableUUID(viewerID), limit, offset,
+		)
+	}
 
 	if err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to query database feed"})
@@ -175,13 +265,13 @@ func GetFeed(c *fiber.Ctx) error {
 		var createdAt time.Time
 		var pollRaw, fundraiserRaw []byte
 		var publishAt *time.Time
-		var teaserUrl, targetListID string
+		var teaserUrl, targetListID, status, visibility string
 
 		err := rows.Scan(
 			&postID, &creatorID, &content, &mediaUrls, &mediaType,
 			&isPremium, &price, &pollRaw, &fundraiserRaw, &repostedFromID, &createdAt, &username, &displayName, &avatar,
 			&likesCount, &commentsCount, &isLiked, &isBookmarked, &isUnlocked, &repostedBy,
-			&publishAt, &teaserUrl, &targetListID,
+			&publishAt, &teaserUrl, &targetListID, &status, &visibility,
 		)
 		if err != nil {
 			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to parse post row"})
@@ -252,10 +342,230 @@ func GetFeed(c *fiber.Ctx) error {
 			"publish_at":       publishAtStr,
 			"teaser_url":       emptyStringToNil(teaserUrl),
 			"target_list_id":   emptyStringToNil(targetListID),
+			"status":           status,
+			"visibility":       visibility,
 		})
 	}
 
 	return c.JSON(feed)
+}
+
+func GetMyPosts(c *fiber.Ctx) error {
+	userID := c.Locals("userID").(string)
+	userRole := c.Locals("userRole").(string)
+	if userRole != "creator" {
+		return c.Status(http.StatusForbidden).JSON(fiber.Map{"error": "Only creators can manage posts"})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	page := boundedQueryInt(c, "page", 1, 1, 100000)
+	limit := boundedQueryInt(c, "limit", 20, 1, 50)
+	offset := (page - 1) * limit
+
+	rows, err := database.Pool.Query(ctx,
+		`SELECT p.id, p.creator_id, COALESCE(p.content, ''), p.media_urls, COALESCE(p.media_type, ''),
+		        p.is_premium, p.price, COALESCE(p.poll, '{}'::jsonb), COALESCE(p.fundraiser, '{}'::jsonb),
+		        COALESCE(p.reposted_from_id::text, ''), p.created_at, pr.username, pr.display_name, COALESCE(pr.avatar, ''),
+		        (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) AS likes_count,
+		        (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
+		        (SELECT COUNT(*) FROM post_unlocks pu WHERE pu.post_id = p.id) AS unlocks_count,
+		        p.publish_at, COALESCE(p.teaser_url, ''), COALESCE(p.target_list_id::text, ''),
+		        COALESCE(p.status, 'published'), COALESCE(p.visibility, 'public')
+		 FROM posts p
+		 JOIN profiles pr ON p.creator_id = pr.user_id
+		 WHERE p.creator_id = $1
+		 ORDER BY p.created_at DESC
+		 LIMIT $2 OFFSET $3`,
+		userID, limit, offset,
+	)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to query creator posts"})
+	}
+	defer rows.Close()
+
+	posts := []fiber.Map{}
+	for rows.Next() {
+		var postID, creatorID, content, mediaType, username, displayName, avatar, repostedFromID string
+		var mediaUrls []string
+		var isPremium bool
+		var price float64
+		var likesCount, commentsCount, unlocksCount int
+		var createdAt time.Time
+		var pollRaw, fundraiserRaw []byte
+		var publishAt *time.Time
+		var teaserUrl, targetListID, status, visibility string
+
+		if err := rows.Scan(
+			&postID, &creatorID, &content, &mediaUrls, &mediaType,
+			&isPremium, &price, &pollRaw, &fundraiserRaw, &repostedFromID, &createdAt, &username, &displayName, &avatar,
+			&likesCount, &commentsCount, &unlocksCount, &publishAt, &teaserUrl, &targetListID, &status, &visibility,
+		); err != nil {
+			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to parse creator post row"})
+		}
+
+		var publishAtStr interface{} = nil
+		if publishAt != nil {
+			publishAtStr = publishAt.Format(time.RFC3339)
+		}
+
+		posts = append(posts, fiber.Map{
+			"id":               postID,
+			"creator_id":       creatorID,
+			"content":          content,
+			"media_urls":       mediaUrls,
+			"media_type":       mediaType,
+			"is_premium":       isPremium,
+			"price":            price,
+			"is_locked":        false,
+			"created_at":       createdAt.Format(time.RFC3339),
+			"creator_username": username,
+			"creator_name":     displayName,
+			"creator_avatar":   avatar,
+			"likes":            likesCount,
+			"comments_count":   commentsCount,
+			"unlocks_count":    unlocksCount,
+			"is_liked":         false,
+			"is_bookmarked":    false,
+			"is_unlocked":      true,
+			"poll":             decodeJSONMap(pollRaw),
+			"fundraiser":       decodeJSONMap(fundraiserRaw),
+			"reposted_from_id": emptyStringToNil(repostedFromID),
+			"publish_at":       publishAtStr,
+			"teaser_url":       emptyStringToNil(teaserUrl),
+			"target_list_id":   emptyStringToNil(targetListID),
+			"status":           status,
+			"visibility":       visibility,
+		})
+	}
+
+	return c.JSON(posts)
+}
+
+func UpdatePost(c *fiber.Ctx) error {
+	userID := c.Locals("userID").(string)
+	userRole := c.Locals("userRole").(string)
+	if userRole != "creator" {
+		return c.Status(http.StatusForbidden).JSON(fiber.Map{"error": "Only creators can edit posts"})
+	}
+
+	req := new(UpdatePostRequest)
+	if err := c.BodyParser(req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	}
+
+	var status *string
+	if req.Status != "" {
+		value := normalizePostStatus(req.Status)
+		status = &value
+	}
+	var visibility *string
+	if req.Visibility != "" {
+		value := normalizePostVisibility(req.Visibility)
+		visibility = &value
+	}
+	var archivedAt interface{} = nil
+	if status != nil && *status == "archived" {
+		archivedAt = time.Now()
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var postID string
+	err := database.Pool.QueryRow(ctx,
+		`UPDATE posts
+		 SET content = COALESCE($3, content),
+		     is_premium = COALESCE($4, is_premium),
+		     price = COALESCE($5, price),
+		     status = COALESCE($6, status),
+		     visibility = COALESCE($7, visibility),
+		     archived_at = CASE
+		       WHEN $6::text = 'archived' THEN COALESCE($8, NOW())
+		       WHEN $6::text IN ('published', 'hidden') THEN NULL
+		       ELSE archived_at
+		     END,
+		     updated_at = NOW()
+		 WHERE id = $1 AND creator_id = $2
+		 RETURNING id::text`,
+		c.Params("id"), userID, req.Content, req.IsPremium, req.Price, status, visibility, archivedAt,
+	).Scan(&postID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return c.Status(http.StatusNotFound).JSON(fiber.Map{"error": "Post not found or not owned by you"})
+		}
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update post"})
+	}
+
+	return c.JSON(fiber.Map{"id": postID, "message": "Post updated"})
+}
+
+func refreshFeedScores(ctx context.Context) error {
+	_, err := database.Pool.Exec(ctx,
+		`WITH components AS (
+		   SELECT p.id AS post_id,
+		          (GREATEST(0, 120 - EXTRACT(EPOCH FROM (NOW() - p.created_at)) / 3600.0) * 0.35) AS recency_score,
+		          ((SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) * 2.0) AS likes_score,
+		          ((SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) * 3.0) AS comments_score,
+		          ((SELECT COUNT(*) FROM post_unlocks pu WHERE pu.post_id = p.id) * 6.0) AS unlocks_score,
+		          ((SELECT COUNT(*) FROM subscriptions s WHERE s.creator_id = p.creator_id AND s.status = 'active' AND s.expires_at > NOW()) * 0.25) AS creator_quality_score,
+		          ((SELECT COUNT(*) FROM post_reports pr WHERE pr.post_id = p.id) * -20.0) AS reports_penalty
+		   FROM posts p
+		   WHERE COALESCE(p.status, 'published') = 'published'
+		 )
+		 INSERT INTO feed_scores (post_id, score, recency_score, likes_score, comments_score, unlocks_score, creator_quality_score, reports_penalty, updated_at)
+		 SELECT post_id,
+		        recency_score + likes_score + comments_score + unlocks_score + creator_quality_score + reports_penalty,
+		        recency_score, likes_score, comments_score, unlocks_score, creator_quality_score, reports_penalty, NOW()
+		 FROM components
+		 ON CONFLICT (post_id) DO UPDATE SET
+		     score = EXCLUDED.score,
+		     recency_score = EXCLUDED.recency_score,
+		     likes_score = EXCLUDED.likes_score,
+		     comments_score = EXCLUDED.comments_score,
+		     unlocks_score = EXCLUDED.unlocks_score,
+		     creator_quality_score = EXCLUDED.creator_quality_score,
+		     reports_penalty = EXCLUDED.reports_penalty,
+		     updated_at = NOW()`,
+	)
+	return err
+}
+
+func normalizePostStatus(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "hidden", "hide":
+		return "hidden"
+	case "archived", "archive":
+		return "archived"
+	default:
+		return "published"
+	}
+}
+
+func normalizePostVisibility(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "subscribers", "subscriber":
+		return "subscribers"
+	case "private", "only_me":
+		return "private"
+	default:
+		return "public"
+	}
+}
+
+func boundedQueryInt(c *fiber.Ctx, name string, fallback, min, max int) int {
+	value, err := strconv.Atoi(c.Query(name))
+	if err != nil {
+		return fallback
+	}
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }
 
 func nullableUUID(id string) interface{} {
@@ -950,4 +1260,3 @@ func GetBookmarks(c *fiber.Ctx) error {
 
 	return c.JSON(feed)
 }
-
