@@ -77,6 +77,8 @@ class SavedPostDetailSheet extends StatelessWidget {
                   caption: post.caption,
                 );
               },
+              creatorId: '',
+              category: 'Lifestyle',
             ),
           ],
         ),

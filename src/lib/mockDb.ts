@@ -54,6 +54,8 @@ export interface Post {
   visibility?: "public" | "subscribers" | "private" | string;
   repostedFromId?: string | null;
   repostedBy?: string | null;
+  creator_id?: string;
+  category?: string;
 }
 
 export interface ChatMessage {

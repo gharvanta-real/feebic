@@ -100,6 +100,8 @@ class _CreatorPostsScreenState extends State<CreatorPostsScreen> {
                 post.isUnlocked = true;
               });
             },
+            creatorId: post.creatorId,
+            category: post.category,
           );
         },
       ),

@@ -81,7 +81,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
       final nameMatches =
           name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
               handle.toLowerCase().contains(_searchQuery.toLowerCase());
-      final categoryMatches = _selectedCategory == 'All';
+      final categoryMatches = _selectedCategory == 'All' ||
+          (creator['category'] ?? '').toString().toLowerCase() == _selectedCategory.toLowerCase();
       return nameMatches && categoryMatches;
     }).toList();
 
@@ -306,7 +307,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   Widget _buildCategoriesRow(bool isDark) {
-    final categories = ['All'];
+    final categories = <String>['All', 'Lifestyle', 'Photography', 'Cosplay', 'Art', 'Fitness'];
     return SizedBox(
       height: 36,
       child: ListView.builder(

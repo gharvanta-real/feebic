@@ -352,6 +352,8 @@ class _FeedScreenState extends State<FeedScreen> {
                             onLikePressed: () {},
                             onCommentPressed: () {},
                             onUnlockPressed: () {},
+                            creatorId: post.creatorId,
+                            category: post.category,
                           );
                         },
                       ),

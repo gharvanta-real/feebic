@@ -183,7 +183,8 @@ func ListCreators(c *fiber.Ctx) error {
 
 	rows, err := database.Pool.Query(ctx,
 		`SELECT u.id, p.username, p.display_name, COALESCE(p.bio, ''), COALESCE(p.avatar, ''), 
-		        COALESCE(p.cover_photo, ''), COALESCE(p.location, ''), COALESCE(p.website, ''), p.sub_price
+		        COALESCE(p.cover_photo, ''), COALESCE(p.location, ''), COALESCE(p.website, ''), p.sub_price,
+		        COALESCE(p.category, 'Lifestyle')
 		 FROM users u
 		 JOIN profiles p ON u.id = p.user_id
 		 WHERE u.role = 'creator' AND p.hidden = false
@@ -197,10 +198,10 @@ func ListCreators(c *fiber.Ctx) error {
 
 	creators := []fiber.Map{}
 	for rows.Next() {
-		var id, username, displayName, bio, avatar, cover, location, website string
+		var id, username, displayName, bio, avatar, cover, location, website, category string
 		var subPrice float64
 
-		err := rows.Scan(&id, &username, &displayName, &bio, &avatar, &cover, &location, &website, &subPrice)
+		err := rows.Scan(&id, &username, &displayName, &bio, &avatar, &cover, &location, &website, &subPrice, &category)
 		if err != nil {
 			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to parse creator records"})
 		}
@@ -215,6 +216,7 @@ func ListCreators(c *fiber.Ctx) error {
 			"location":     location,
 			"website":      website,
 			"sub_price":    subPrice,
+			"category":     category,
 		})
 	}
 

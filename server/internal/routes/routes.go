@@ -55,6 +55,7 @@ func SetupRoutes(app *fiber.App) {
 	// 3. Posts & Feed Group
 	postsGroup := api.Group("/posts")
 	postsGroup.Get("/", posts.GetFeed) // Public feed (optionally authorized inside handler)
+	postsGroup.Post("/interaction", middleware.RequireAuth(), posts.RecordInteraction)
 	postsGroup.Get("/bookmarks", middleware.RequireAuth(), posts.GetBookmarks)
 	postsGroup.Get("/mine", middleware.RequireAuth(), posts.GetMyPosts)
 	postsGroup.Post("/", middleware.RequireAuth(), posts.CreatePost) // Protected post creation

@@ -21,6 +21,7 @@ class PostModel {
   final String status;
   final String visibility;
   final int unlocksCount;
+  final String category;
 
   PostModel({
     required this.id,
@@ -43,6 +44,7 @@ class PostModel {
     required this.status,
     required this.visibility,
     required this.unlocksCount,
+    required this.category,
   });
 
   factory PostModel.fromJson(Map<String, dynamic> json) {
@@ -76,6 +78,7 @@ class PostModel {
       status: json['status'] ?? 'published',
       visibility: json['visibility'] ?? 'public',
       unlocksCount: json['unlocks_count'] ?? 0,
+      category: json['category'] ?? 'Lifestyle',
     );
   }
 }

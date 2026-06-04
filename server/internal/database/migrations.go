@@ -307,8 +307,40 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS country VARCHAR(100) DEFAULT '';
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN DEFAULT FALSE;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS hidden BOOLEAN DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS category VARCHAR(100) DEFAULT 'Lifestyle';
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS category VARCHAR(100) DEFAULT 'Lifestyle';
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS tags VARCHAR(50)[];
+
+CREATE TABLE IF NOT EXISTS user_interactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    post_id UUID REFERENCES posts(id) ON DELETE CASCADE,
+    creator_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    interaction_type VARCHAR(50) NOT NULL,
+    dwell_time_seconds INT DEFAULT 0,
+    category VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS user_interests (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    interests JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_interactions_composite ON user_interactions(user_id, category, interaction_type);
 
 UPDATE profiles SET hidden = TRUE WHERE username = 'gharvanta';
+UPDATE profiles SET category = 'Cosplay' WHERE username = 'amouranth';
+UPDATE profiles SET category = 'Fitness' WHERE username = 'austinwolf';
+UPDATE profiles SET category = 'Photography' WHERE username = 'demirose';
+UPDATE profiles SET category = 'Lifestyle' WHERE username = 'lanarhoades';
+UPDATE profiles SET category = 'Lifestyle' WHERE username = 'gharvanta';
+
+UPDATE posts SET category = 'Photography' WHERE creator_id IN (SELECT user_id FROM profiles WHERE username = 'demirose');
+UPDATE posts SET category = 'Cosplay' WHERE creator_id IN (SELECT user_id FROM profiles WHERE username = 'amouranth');
+UPDATE posts SET category = 'Lifestyle' WHERE creator_id IN (SELECT user_id FROM profiles WHERE username = 'lanarhoades');
+UPDATE posts SET category = 'Fitness' WHERE creator_id IN (SELECT user_id FROM profiles WHERE username = 'austinwolf');
 
 UPDATE users
 SET password_hash = 'external-auth-managed-placeholder-hash'

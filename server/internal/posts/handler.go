@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -152,10 +153,14 @@ func GetFeed(c *fiber.Ctx) error {
 	orderBy := "p.created_at DESC"
 	if usernameFilter == "" && sortMode != "latest" {
 		if scoreErr := refreshFeedScores(ctx); scoreErr == nil {
-			orderBy = `(COALESCE(fs.score, 0) + CASE WHEN $1::uuid IS NULL THEN 0 ELSE CASE WHEN EXISTS(
-			      SELECT 1 FROM subscriptions s
-			      WHERE s.fan_id = $1::uuid AND s.creator_id = p.creator_id AND s.status = 'active' AND s.expires_at > NOW()
-			   ) THEN 18 ELSE 0 END END) DESC, p.created_at DESC`
+			orderBy = `(COALESCE(fs.score, 0) + 
+			   CASE WHEN $1::uuid IS NULL THEN 0.0 ELSE 
+			      COALESCE((SELECT (ui.interests->>COALESCE(p.category, 'Lifestyle'))::numeric FROM user_interests ui WHERE ui.user_id = $1::uuid), 0.0) * 8.0 +
+			      CASE WHEN EXISTS(
+			         SELECT 1 FROM subscriptions s
+			         WHERE s.fan_id = $1::uuid AND s.creator_id = p.creator_id AND s.status = 'active' AND s.expires_at > NOW()
+			      ) THEN 18.0 ELSE 0.0 END
+			   END) DESC, p.created_at DESC`
 		}
 	}
 	if usernameFilter != "" {
@@ -176,7 +181,8 @@ func GetFeed(c *fiber.Ctx) error {
 			        ) END AS is_unlocked,
 			        COALESCE(rp.username, ''),
 			        p.publish_at, COALESCE(p.teaser_url, ''), COALESCE(p.target_list_id::text, ''),
-			        COALESCE(p.status, 'published'), COALESCE(p.visibility, 'public')
+			        COALESCE(p.status, 'published'), COALESCE(p.visibility, 'public'),
+			        COALESCE(p.category, 'Lifestyle')
 			 FROM posts p
 			 JOIN profiles pr ON p.creator_id = pr.user_id
 			 LEFT JOIN profiles rp ON p.creator_id = rp.user_id
@@ -220,7 +226,8 @@ func GetFeed(c *fiber.Ctx) error {
 			        ) END AS is_unlocked,
 			        COALESCE(rp.username, ''),
 			        p.publish_at, COALESCE(p.teaser_url, ''), COALESCE(p.target_list_id::text, ''),
-			        COALESCE(p.status, 'published'), COALESCE(p.visibility, 'public')
+			        COALESCE(p.status, 'published'), COALESCE(p.visibility, 'public'),
+			        COALESCE(p.category, 'Lifestyle')
 			 FROM posts p
 			 JOIN profiles pr ON p.creator_id = pr.user_id
 			 LEFT JOIN profiles rp ON p.creator_id = rp.user_id
@@ -265,13 +272,13 @@ func GetFeed(c *fiber.Ctx) error {
 		var createdAt time.Time
 		var pollRaw, fundraiserRaw []byte
 		var publishAt *time.Time
-		var teaserUrl, targetListID, status, visibility string
+		var teaserUrl, targetListID, status, visibility, category string
 
 		err := rows.Scan(
 			&postID, &creatorID, &content, &mediaUrls, &mediaType,
 			&isPremium, &price, &pollRaw, &fundraiserRaw, &repostedFromID, &createdAt, &username, &displayName, &avatar,
 			&likesCount, &commentsCount, &isLiked, &isBookmarked, &isUnlocked, &repostedBy,
-			&publishAt, &teaserUrl, &targetListID, &status, &visibility,
+			&publishAt, &teaserUrl, &targetListID, &status, &visibility, &category,
 		)
 		if err != nil {
 			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to parse post row"})
@@ -344,6 +351,7 @@ func GetFeed(c *fiber.Ctx) error {
 			"target_list_id":   emptyStringToNil(targetListID),
 			"status":           status,
 			"visibility":       visibility,
+			"category":         category,
 		})
 	}
 
@@ -372,7 +380,8 @@ func GetMyPosts(c *fiber.Ctx) error {
 		        (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comments_count,
 		        (SELECT COUNT(*) FROM post_unlocks pu WHERE pu.post_id = p.id) AS unlocks_count,
 		        p.publish_at, COALESCE(p.teaser_url, ''), COALESCE(p.target_list_id::text, ''),
-		        COALESCE(p.status, 'published'), COALESCE(p.visibility, 'public')
+		        COALESCE(p.status, 'published'), COALESCE(p.visibility, 'public'),
+		        COALESCE(p.category, 'Lifestyle')
 		 FROM posts p
 		 JOIN profiles pr ON p.creator_id = pr.user_id
 		 WHERE p.creator_id = $1
@@ -395,12 +404,12 @@ func GetMyPosts(c *fiber.Ctx) error {
 		var createdAt time.Time
 		var pollRaw, fundraiserRaw []byte
 		var publishAt *time.Time
-		var teaserUrl, targetListID, status, visibility string
+		var teaserUrl, targetListID, status, visibility, category string
 
 		if err := rows.Scan(
 			&postID, &creatorID, &content, &mediaUrls, &mediaType,
 			&isPremium, &price, &pollRaw, &fundraiserRaw, &repostedFromID, &createdAt, &username, &displayName, &avatar,
-			&likesCount, &commentsCount, &unlocksCount, &publishAt, &teaserUrl, &targetListID, &status, &visibility,
+			&likesCount, &commentsCount, &unlocksCount, &publishAt, &teaserUrl, &targetListID, &status, &visibility, &category,
 		); err != nil {
 			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to parse creator post row"})
 		}
@@ -437,6 +446,7 @@ func GetMyPosts(c *fiber.Ctx) error {
 			"target_list_id":   emptyStringToNil(targetListID),
 			"status":           status,
 			"visibility":       visibility,
+			"category":         category,
 		})
 	}
 
@@ -1152,7 +1162,8 @@ func GetBookmarks(c *fiber.Ctx) error {
 		        	SELECT 1 FROM post_unlocks pu WHERE pu.post_id = p.id AND pu.user_id = $1::uuid
 		        ) END AS is_unlocked,
 		        COALESCE(rp.username, ''),
-		        p.publish_at, COALESCE(p.teaser_url, ''), COALESCE(p.target_list_id::text, '')
+		        p.publish_at, COALESCE(p.teaser_url, ''), COALESCE(p.target_list_id::text, ''),
+		        COALESCE(p.category, 'Lifestyle')
 		 FROM posts p
 		 JOIN profiles pr ON p.creator_id = pr.user_id
 		 LEFT JOIN profiles rp ON p.creator_id = rp.user_id
@@ -1180,13 +1191,13 @@ func GetBookmarks(c *fiber.Ctx) error {
 		var createdAt time.Time
 		var pollRaw, fundraiserRaw []byte
 		var publishAt *time.Time
-		var teaserUrl, targetListID string
+		var teaserUrl, targetListID, category string
 
 		err := rows.Scan(
 			&postID, &creatorID, &content, &mediaUrls, &mediaType,
 			&isPremium, &price, &pollRaw, &fundraiserRaw, &repostedFromID, &createdAt, &username, &displayName, &avatar,
 			&likesCount, &commentsCount, &isLiked, &isBookmarked, &isUnlocked, &repostedBy,
-			&publishAt, &teaserUrl, &targetListID,
+			&publishAt, &teaserUrl, &targetListID, &category,
 		)
 		if err != nil {
 			return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to parse post row"})
@@ -1255,8 +1266,99 @@ func GetBookmarks(c *fiber.Ctx) error {
 			"publish_at":       publishAtStr,
 			"teaser_url":       emptyStringToNil(teaserUrl),
 			"target_list_id":   emptyStringToNil(targetListID),
+			"category":         category,
 		})
 	}
 
 	return c.JSON(feed)
+}
+
+func minFloat(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+type RecordInteractionRequest struct {
+	PostID           string `json:"postId"`
+	CreatorID        string `json:"creatorId"`
+	InteractionType  string `json:"interactionType"`
+	DwellTimeSeconds int    `json:"dwellTime"`
+	Category         string `json:"category"`
+}
+
+func RecordInteraction(c *fiber.Ctx) error {
+	userID := c.Locals("userID").(string)
+
+	req := new(RecordInteractionRequest)
+	if err := c.BodyParser(req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+	}
+
+	if req.InteractionType == "" {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Interaction type is required"})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var postIDVal, creatorIDVal, categoryVal interface{}
+	postIDVal = nil
+	if req.PostID != "" {
+		postIDVal = req.PostID
+	}
+	creatorIDVal = nil
+	if req.CreatorID != "" {
+		creatorIDVal = req.CreatorID
+	}
+	categoryVal = "Lifestyle"
+	if req.Category != "" {
+		categoryVal = req.Category
+	}
+
+	_, err := database.Pool.Exec(ctx,
+		`INSERT INTO user_interactions (user_id, post_id, creator_id, interaction_type, dwell_time_seconds, category)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		userID, postIDVal, creatorIDVal, req.InteractionType, req.DwellTimeSeconds, categoryVal,
+	)
+	if err != nil {
+		log.Printf("⚠️ Warning: Failed to record interaction: %v", err)
+	}
+
+	var scoreDelta float64 = 1.0
+	switch strings.ToLower(req.InteractionType) {
+	case "unlock":
+		scoreDelta = 25.0
+	case "bookmark":
+		scoreDelta = 10.0
+	case "like":
+		scoreDelta = 5.0
+	case "comment":
+		scoreDelta = 4.0
+	case "view":
+		if req.DwellTimeSeconds > 0 {
+			scoreDelta = minFloat(float64(req.DwellTimeSeconds)*0.2, 8.0)
+		} else {
+			scoreDelta = 1.0
+		}
+	}
+
+	_, err = database.Pool.Exec(ctx,
+		`INSERT INTO user_interests (user_id, interests)
+		 VALUES ($1, jsonb_build_object($2::text, $3::numeric))
+		 ON CONFLICT (user_id) DO UPDATE SET
+		     interests = jsonb_set(
+		         COALESCE(user_interests.interests, '{}'::jsonb),
+		         ARRAY[$2::text],
+		         to_jsonb(COALESCE((user_interests.interests->>$2::text)::numeric, 0.0) + $3::numeric)
+		     ),
+		     updated_at = NOW()`,
+		userID, categoryVal, scoreDelta,
+	)
+	if err != nil {
+		log.Printf("⚠️ Warning: Failed to update user interests: %v", err)
+	}
+
+	return c.JSON(fiber.Map{"status": "recorded"})
 }

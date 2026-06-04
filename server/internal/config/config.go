@@ -12,6 +12,8 @@ type Config struct {
 	DatabaseURL            string
 	Port                   string
 	JWTSecret              string
+	AdminJWTSecret         string
+	AdminPasswordKey       string
 	CloudinaryCloudName    string
 	CloudinaryAPIKey       string
 	CloudinaryAPISecret    string
@@ -44,6 +46,16 @@ func Load() *Config {
 		log.Fatal("JWT_SECRET must be set to a strong production secret")
 	}
 
+	adminJWTSecret := os.Getenv("ADMIN_JWT_SECRET")
+	if adminJWTSecret == "" {
+		adminJWTSecret = "felbic-admin-secret-key-completely-separate-from-users-abc987"
+	}
+
+	adminPasswordKey := os.Getenv("ADMIN_PASSWORD_KEY")
+	if adminPasswordKey == "" {
+		adminPasswordKey = "felbic-admin-password-pepper-key-change-in-production"
+	}
+
 	cloudinaryFolder := os.Getenv("CLOUDINARY_UPLOAD_FOLDER")
 	if cloudinaryFolder == "" {
 		cloudinaryFolder = "felbic/dev"
@@ -58,6 +70,8 @@ func Load() *Config {
 		DatabaseURL:            dbURL,
 		Port:                   port,
 		JWTSecret:              jwtSecret,
+		AdminJWTSecret:         adminJWTSecret,
+		AdminPasswordKey:       adminPasswordKey,
 		CloudinaryCloudName:    os.Getenv("CLOUDINARY_CLOUD_NAME"),
 		CloudinaryAPIKey:       os.Getenv("CLOUDINARY_API_KEY"),
 		CloudinaryAPISecret:    os.Getenv("CLOUDINARY_API_SECRET"),

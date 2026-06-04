@@ -80,6 +80,61 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
   const [isBookmarked, setIsBookmarked] = useState(Boolean((initialPost as ApiPost).isBookmarked));
   const [likeAnim, setLikeAnim] = useState(false);
 
+  const articleRef = useRef<HTMLElement>(null);
+  const dwellStartTime = useRef<number | null>(null);
+
+  const recordInteraction = (type: string, dwellTimeVal: number = 0) => {
+    if (!user) return;
+    apiClient.post("/posts/interaction", {
+      postId: post.id,
+      creatorId: post.creator_id || "",
+      interactionType: type,
+      dwellTime: dwellTimeVal,
+      category: post.category || "Lifestyle"
+    }).catch((err) => {
+      console.error(`Failed to record ${type} interaction:`, err);
+    });
+  };
+
+  useEffect(() => {
+    if (!user) return;
+    const el = articleRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            dwellStartTime.current = Date.now();
+          } else {
+            if (dwellStartTime.current !== null) {
+              const durationMs = Date.now() - dwellStartTime.current;
+              const durationSec = Math.round(durationMs / 1000);
+              if (durationSec >= 1) {
+                recordInteraction("view", durationSec);
+              }
+              dwellStartTime.current = null;
+            }
+          }
+        });
+      },
+      { threshold: 0.5 }
+    );
+
+    observer.observe(el);
+
+    return () => {
+      observer.unobserve(el);
+      if (dwellStartTime.current !== null) {
+        const durationMs = Date.now() - dwellStartTime.current;
+        const durationSec = Math.round(durationMs / 1000);
+        if (durationSec >= 1) {
+          recordInteraction("view", durationSec);
+        }
+      }
+    };
+  }, [post.id, post.creator_id, post.category, user]);
+
   // Comments accordion state
   const [showComments, setShowComments] = useState(defaultShowComments);
   const [comments, setComments] = useState<PostComment[]>([]);
@@ -149,6 +204,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
       if (res.is_liked) {
         setLikeAnim(true);
         setTimeout(() => setLikeAnim(false), 400);
+        recordInteraction("like");
       }
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to update like");
@@ -161,6 +217,9 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
       setIsBookmarked(res.is_bookmarked);
       window.dispatchEvent(new CustomEvent("ch_bookmark_changed", { detail: { postId: post.id, isBookmarked: res.is_bookmarked } }));
       showToast(res.is_bookmarked ? "Post bookmarked" : "Removed from bookmarks");
+      if (res.is_bookmarked) {
+        recordInteraction("bookmark");
+      }
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to update bookmark");
     }
@@ -209,6 +268,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
       setCommentsLoaded(true);
       setNewCommentText("");
       setPost({ ...post, commentsCount: res.comments_count });
+      recordInteraction("comment");
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to add comment");
     }
@@ -276,6 +336,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
         showToast("Content unlocked successfully!");
         if (onPostUpdate) onPostUpdate();
         setPost({ ...post, isUnlocked: true } as Post);
+        recordInteraction("unlock");
       } catch (err) {
         showToast(err instanceof Error ? err.message : "Failed to unlock content");
       }
@@ -514,7 +575,7 @@ export const PostCard: React.FC<PostCardProps> = ({ post: initialPost, onPostUpd
   const isQueued = initialPost.publishAt && new Date(initialPost.publishAt).getTime() > Date.now();
 
   return (
-    <article className="rounded-3xl border border-border/60 bg-surface p-4 md:p-5 space-y-3.5 transition-colors duration-200 hover:border-primary/20">
+    <article ref={articleRef} className="rounded-3xl border border-border/60 bg-surface p-4 md:p-5 space-y-3.5 transition-colors duration-200 hover:border-primary/20">
       {/* Scheduled Queue header indicator */}
       {isQueued && (
         <div className="bg-primary/10 border border-primary/20 text-primary px-3.5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 select-none w-fit">

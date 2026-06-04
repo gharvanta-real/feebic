@@ -33,7 +33,7 @@ export default function ExplorePage() {
           likes: String(creator.likes_count || creator.likes || 0),
           subPrice: creator.sub_price || creator.subPrice || 0,
           verified: true,
-          tag: creator.tag || "Creator",
+          tag: creator.category || creator.tag || "Lifestyle",
           fansCount: String(creator.fans_count || 0),
           postsCount: String(creator.posts_count || 0),
           photosCount: String(creator.photos_count || 0),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 import 'package:felbic_mobile/features/shared/widgets/locked_content_card.dart';
 import 'package:felbic_mobile/features/shared/widgets/optimized_network_image.dart';
 import 'package:felbic_mobile/features/shared/widgets/user_avatar.dart';
@@ -33,6 +34,8 @@ class FeedCard extends StatefulWidget {
     this.isLocked = false,
     this.unlockPrice,
     this.isVideo = false,
+    this.creatorId,
+    this.category,
   });
 
   final String username;
@@ -52,6 +55,8 @@ class FeedCard extends StatefulWidget {
   final VoidCallback onLikePressed;
   final VoidCallback onCommentPressed;
   final VoidCallback onUnlockPressed;
+  final String? creatorId;
+  final String? category;
 
   @override
   State<FeedCard> createState() => _FeedCardState();
@@ -69,6 +74,7 @@ class _FeedCardState extends State<FeedCard> {
   bool _isLoadingComments = false;
   bool _commentsLoaded = false;
   final List<Key> _heartOverlayKeys = <Key>[];
+  DateTime? _dwellStartTime;
 
   @override
   void initState() {
@@ -79,6 +85,39 @@ class _FeedCardState extends State<FeedCard> {
     _isBookmarked = widget.isBookmarked;
     _isLockedState = widget.isLocked;
     // Comments are loaded lazily when user opens the sheet
+  }
+
+  @override
+  void dispose() {
+    _recordDwellTime();
+    super.dispose();
+  }
+
+  void _recordDwellTime() {
+    if (_dwellStartTime != null) {
+      final elapsed = DateTime.now().difference(_dwellStartTime!).inSeconds;
+      _dwellStartTime = null;
+      if (elapsed >= 1) {
+        _logInteraction('view', dwellTimeSeconds: elapsed);
+      }
+    }
+  }
+
+  Future<void> _logInteraction(String type, {int dwellTimeSeconds = 0}) async {
+    try {
+      final categoryVal = widget.category ?? 'Lifestyle';
+      final creatorIdVal = widget.creatorId ?? '';
+      
+      await getIt<ApiClient>().post('/posts/interaction', data: {
+        'postId': widget.postId,
+        'creatorId': creatorIdVal,
+        'interactionType': type,
+        'dwellTime': dwellTimeSeconds,
+        'category': categoryVal,
+      });
+    } catch (e) {
+      debugPrint('Failed to log interaction $type: $e');
+    }
   }
 
   void _openCreatorProfile() {
@@ -138,6 +177,7 @@ class _FeedCardState extends State<FeedCard> {
             _commentsCount = newCount;
           });
         }
+        _logInteraction('comment');
       }
     } catch (e) {
       debugPrint('Error submitting comment: $e');
@@ -156,6 +196,9 @@ class _FeedCardState extends State<FeedCard> {
             _likesCount = data['likes'] ?? _likesCount;
           });
         }
+        if (data['is_liked'] == true) {
+          _logInteraction('like');
+        }
       }
     } catch (e) {
       debugPrint('Error toggling like: $e');
@@ -172,6 +215,9 @@ class _FeedCardState extends State<FeedCard> {
           setState(() {
             _isBookmarked = data['is_bookmarked'] ?? !_isBookmarked;
           });
+        }
+        if (data['is_bookmarked'] == true) {
+          _logInteraction('bookmark');
         }
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -223,6 +269,7 @@ class _FeedCardState extends State<FeedCard> {
           });
         }
         widget.onUnlockPressed();
+        _logInteraction('unlock');
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -595,187 +642,198 @@ class _FeedCardState extends State<FeedCard> {
     final isDark = theme.brightness == Brightness.dark;
     final isSubscribed = _isSubscribed;
 
-    return RepaintBoundary(
-      child: ColoredBox(
-        color: isDark ? AppColors.darkBackground : AppColors.lightBackground,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md, vertical: AppSpacing.sm),
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: _openCreatorProfile,
-                    child: UserAvatar(imageUrl: widget.avatarUrl, radius: 18),
-                  ),
-                  AppSpacing.gapSM,
-                  GestureDetector(
-                    onTap: _openCreatorProfile,
-                    child: Text(
-                      widget.username,
-                      style: theme.textTheme.bodyLarge
-                          ?.copyWith(fontWeight: FontWeight.w600, fontSize: 14),
+    return VisibilityDetector(
+      key: Key('feed-card-${widget.postId}'),
+      onVisibilityChanged: (info) {
+        final visiblePercentage = info.visibleFraction * 100;
+        if (visiblePercentage > 50) {
+          _dwellStartTime ??= DateTime.now();
+        } else {
+          _recordDwellTime();
+        }
+      },
+      child: RepaintBoundary(
+        child: ColoredBox(
+          color: isDark ? AppColors.darkBackground : AppColors.lightBackground,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+                child: Row(
+                  children: [
+                    GestureDetector(
+                      onTap: _openCreatorProfile,
+                      child: UserAvatar(imageUrl: widget.avatarUrl, radius: 18),
                     ),
-                  ),
-                  if (widget.isVerified) const VerifiedBadge(),
-                  AppSpacing.gapSM,
-                  GestureDetector(
-                    onTap: _toggleSubscribe,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: isSubscribed
-                            ? Colors.transparent
-                            : (isDark
-                                ? AppColors.darkPrimary
-                                : AppColors.lightPrimary),
-                        borderRadius: AppRadius.rFull,
-                        border: Border.all(
+                    AppSpacing.gapSM,
+                    GestureDetector(
+                      onTap: _openCreatorProfile,
+                      child: Text(
+                        widget.username,
+                        style: theme.textTheme.bodyLarge
+                            ?.copyWith(fontWeight: FontWeight.w600, fontSize: 14),
+                      ),
+                    ),
+                    if (widget.isVerified) const VerifiedBadge(),
+                    AppSpacing.gapSM,
+                    GestureDetector(
+                      onTap: _toggleSubscribe,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
                           color: isSubscribed
-                              ? (isDark
-                                  ? AppColors.darkBorder
-                                  : AppColors.lightBorder)
+                              ? Colors.transparent
                               : (isDark
                                   ? AppColors.darkPrimary
                                   : AppColors.lightPrimary),
+                          borderRadius: AppRadius.rFull,
+                          border: Border.all(
+                            color: isSubscribed
+                                ? (isDark
+                                    ? AppColors.darkBorder
+                                    : AppColors.lightBorder)
+                                : (isDark
+                                    ? AppColors.darkPrimary
+                                    : AppColors.lightPrimary),
+                          ),
                         ),
-                      ),
-                      child: Text(
-                        isSubscribed ? 'Subscribed' : 'Subscribe',
-                        style: TextStyle(
-                          color: isSubscribed
-                              ? (isDark
-                                  ? AppColors.darkTextMuted
-                                  : AppColors.lightTextMuted)
-                              : Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 11,
+                        child: Text(
+                          isSubscribed ? 'Subscribed' : 'Subscribe',
+                          style: TextStyle(
+                            color: isSubscribed
+                                ? (isDark
+                                    ? AppColors.darkTextMuted
+                                    : AppColors.lightTextMuted)
+                                : Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.more_horiz, size: 20),
-                    onPressed: _showPostMenu,
-                    color: isDark
-                        ? AppColors.darkTextMuted
-                        : AppColors.lightTextMuted,
-                  ),
-                ],
-              ),
-            ),
-            if (widget.imageUrl != null)
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  GestureDetector(
-                    onDoubleTap: _triggerDoubleTapLike,
-                    child: _buildMedia(),
-                  ),
-                  ..._heartOverlayKeys.map((key) => HeartPopOverlay(key: key)),
-                ],
-              ),
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
-              child: Row(
-                children: [
-                  SpringIconButton(
-                    icon: Icon(
-                        _isLiked
-                            ? Icons.favorite_rounded
-                            : Icons.favorite_border_rounded,
-                        color: _isLiked
-                            ? (isDark
-                                ? AppColors.darkAccent
-                                : AppColors.lightAccent)
-                            : (isDark
-                                ? AppColors.darkTextMain
-                                : AppColors.lightTextMain),
-                        size: 22),
-                    onPressed: () {
-                      HapticFeedback.lightImpact();
-                      _toggleLike();
-                    },
-                  ),
-                  Text('$_likesCount',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.bold, fontSize: 13)),
-                  AppSpacing.gapSM,
-                  SpringIconButton(
-                    icon: Icon(Icons.chat_bubble_outline_rounded,
-                        color: isDark
-                            ? AppColors.darkTextMain
-                            : AppColors.lightTextMain,
-                        size: 20),
-                    onPressed: _showCommentsSheet,
-                  ),
-                  Text('$_commentsCount',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.bold, fontSize: 13)),
-                  SpringIconButton(
-                    icon: Icon(Icons.ios_share_rounded,
-                        color: isDark
-                            ? AppColors.darkTextMain
-                            : AppColors.lightTextMain,
-                        size: 20),
-                    onPressed: _sharePost,
-                  ),
-                  const Spacer(),
-                  SpringIconButton(
-                    icon: Icon(
-                        _isBookmarked
-                            ? Icons.bookmark_rounded
-                            : Icons.bookmark_border_rounded,
-                        color: _isBookmarked
-                            ? (isDark
-                                ? AppColors.darkPrimary
-                                : AppColors.lightPrimary)
-                            : (isDark
-                                ? AppColors.darkTextMain
-                                : AppColors.lightTextMain),
-                        size: 22),
-                    onPressed: () {
-                      HapticFeedback.lightImpact();
-                      _toggleBookmark();
-                    },
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(
-                  left: AppSpacing.lg,
-                  right: AppSpacing.lg,
-                  bottom: AppSpacing.md),
-              child: RichText(
-                text: TextSpan(
-                  style: TextStyle(
-                    color: isDark
-                        ? AppColors.darkTextMain
-                        : AppColors.lightTextMain,
-                    fontSize: 13,
-                    fontFamily: 'Inter',
-                  ),
-                  children: [
-                    TextSpan(
-                        text: '${widget.username} ',
-                        style: const TextStyle(fontWeight: FontWeight.bold)),
-                    TextSpan(text: widget.caption),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.more_horiz, size: 20),
+                      onPressed: _showPostMenu,
+                      color: isDark
+                          ? AppColors.darkTextMuted
+                          : AppColors.lightTextMuted,
+                    ),
                   ],
                 ),
               ),
-            ),
-            Divider(
-                height: 1,
-                color: isDark
-                    ? AppColors.darkBorder.withOpacity(0.4)
-                    : AppColors.lightBorder.withOpacity(0.4)),
-          ],
+              if (widget.imageUrl != null)
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    GestureDetector(
+                      onDoubleTap: _triggerDoubleTapLike,
+                      child: _buildMedia(),
+                    ),
+                    ..._heartOverlayKeys.map((key) => HeartPopOverlay(key: key)),
+                  ],
+                ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
+                child: Row(
+                  children: [
+                    SpringIconButton(
+                      icon: Icon(
+                          _isLiked
+                              ? Icons.favorite_rounded
+                              : Icons.favorite_border_rounded,
+                          color: _isLiked
+                              ? (isDark
+                                  ? AppColors.darkAccent
+                                  : AppColors.lightAccent)
+                              : (isDark
+                                  ? AppColors.darkTextMain
+                                  : AppColors.lightTextMain),
+                          size: 22),
+                      onPressed: () {
+                        HapticFeedback.lightImpact();
+                        _toggleLike();
+                      },
+                    ),
+                    Text('$_likesCount',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.bold, fontSize: 13)),
+                    AppSpacing.gapSM,
+                    SpringIconButton(
+                      icon: Icon(Icons.chat_bubble_outline_rounded,
+                          color: isDark
+                              ? AppColors.darkTextMain
+                              : AppColors.lightTextMain,
+                          size: 20),
+                      onPressed: _showCommentsSheet,
+                    ),
+                    Text('$_commentsCount',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.bold, fontSize: 13)),
+                    SpringIconButton(
+                      icon: Icon(Icons.ios_share_rounded,
+                          color: isDark
+                              ? AppColors.darkTextMain
+                              : AppColors.lightTextMain,
+                          size: 20),
+                      onPressed: _sharePost,
+                    ),
+                    const Spacer(),
+                    SpringIconButton(
+                      icon: Icon(
+                          _isBookmarked
+                              ? Icons.bookmark_rounded
+                              : Icons.bookmark_border_rounded,
+                          color: _isBookmarked
+                              ? (isDark
+                                  ? AppColors.darkPrimary
+                                  : AppColors.lightPrimary)
+                              : (isDark
+                                  ? AppColors.darkTextMain
+                                  : AppColors.lightTextMain),
+                          size: 22),
+                      onPressed: () {
+                        HapticFeedback.lightImpact();
+                        _toggleBookmark();
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(
+                    left: AppSpacing.lg,
+                    right: AppSpacing.lg,
+                    bottom: AppSpacing.md),
+                child: RichText(
+                  text: TextSpan(
+                    style: TextStyle(
+                      color: isDark
+                        ? AppColors.darkTextMain
+                        : AppColors.lightTextMain,
+                      fontSize: 13,
+                      fontFamily: 'Inter',
+                    ),
+                    children: [
+                      TextSpan(
+                          text: '${widget.username} ',
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      TextSpan(text: widget.caption),
+                    ],
+                  ),
+                ),
+              ),
+              Divider(
+                  height: 1,
+                  color: isDark
+                      ? AppColors.darkBorder.withOpacity(0.4)
+                      : AppColors.lightBorder.withOpacity(0.4)),
+            ],
+          ),
         ),
       ),
     );
