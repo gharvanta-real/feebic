@@ -9,11 +9,26 @@ function withAdminSecurityHeaders(response: NextResponse) {
   return response;
 }
 
+function getAdminHosts() {
+  return (process.env.ADMIN_PANEL_HOSTS || "admin.felbic.gharvanta.in,localhost,127.0.0.1")
+    .split(",")
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function getRequestHost(request: NextRequest) {
+  return (request.headers.get("host") || "").split(":")[0].toLowerCase();
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (!pathname.startsWith("/admin")) {
     return NextResponse.next();
+  }
+
+  if (!getAdminHosts().includes(getRequestHost(request))) {
+    return new NextResponse("Not found", { status: 404 });
   }
 
   const adminToken = request.cookies.get("ch_admin_token")?.value;
