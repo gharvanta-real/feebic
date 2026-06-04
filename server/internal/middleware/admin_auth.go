@@ -31,7 +31,8 @@ func RequireAdminAuth() fiber.Handler {
 			})
 		}
 
-		staffID, username, role, err := adminauth.ParseAdminToken(parts[1])
+		tokenString := parts[1]
+		staffID, username, role, err := adminauth.ParseAdminToken(tokenString)
 		if err != nil {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": "Invalid or expired admin token. Please login again.",
@@ -54,9 +55,77 @@ func RequireAdminAuth() fiber.Handler {
 			})
 		}
 
+		var sessionActive bool
+		sessionHash := adminauth.HashAdminSessionToken(tokenString)
+		dbErr = database.Pool.QueryRow(ctx,
+			`SELECT EXISTS (
+				SELECT 1 FROM admin_sessions
+				WHERE staff_id = $1
+				  AND session_token = $2
+				  AND is_revoked = false
+				  AND expires_at > CURRENT_TIMESTAMP
+			)`,
+			staffID, sessionHash,
+		).Scan(&sessionActive)
+		if dbErr != nil || !sessionActive {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "Admin session has expired or was revoked. Please login again.",
+			})
+		}
+
 		c.Locals("adminStaffID", staffID)
 		c.Locals("adminUsername", username)
 		c.Locals("adminRole", role)
+
+		return c.Next()
+	}
+}
+
+// RequireAdminStep1Auth validates the short-lived admin step1 token
+// (for TOTP setup and confirm phase before 2FA is active)
+func RequireAdminStep1Auth() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		authHeader := c.Get("Authorization")
+		if authHeader == "" {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "Admin step1 token required",
+			})
+		}
+
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "Invalid authorization header format",
+			})
+		}
+
+		staffID, email, err := adminauth.ParseStep1Token(parts[1])
+		if err != nil {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "Invalid or expired step1 token. Please login again.",
+			})
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		var username, role string
+		var isActive bool
+		dbErr := database.Pool.QueryRow(ctx,
+			"SELECT username, role, COALESCE(is_active, true) FROM admin_staff WHERE id = $1",
+			staffID,
+		).Scan(&username, &role, &isActive)
+
+		if dbErr != nil || !isActive {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"error": "Staff account not found or has been deactivated",
+			})
+		}
+
+		c.Locals("adminStaffID", staffID)
+		c.Locals("adminUsername", username)
+		c.Locals("adminRole", role)
+		c.Locals("adminEmail", email)
 
 		return c.Next()
 	}

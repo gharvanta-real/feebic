@@ -5,8 +5,10 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/base32"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,7 +77,13 @@ func generateAdminToken(staffID, username, role string) (string, error) {
 	return token.SignedString([]byte(cfg.AdminJWTSecret))
 }
 
-func parseStep1Token(tokenStr string) (staffID, email string, err error) {
+func HashAdminSessionToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+// ParseStep1Token validates a short-lived step1 login token
+func ParseStep1Token(tokenStr string) (staffID, email string, err error) {
 	cfg := config.Load()
 	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -257,7 +265,7 @@ func Login(c *fiber.Ctx) error {
 	if passwordHash == "PLACEHOLDER_WILL_BE_SET_ON_FIRST_LOGIN" {
 		if len(req.Password) < 10 {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error":     "First login: please set a password of at least 10 characters",
+				"error":       "First login: please set a password of at least 10 characters",
 				"first_login": true,
 			})
 		}
@@ -280,11 +288,11 @@ func Login(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"step1_token":  step1Token,
+		"step1_token":   step1Token,
 		"totp_required": totpEnabled,
-		"totp_setup":   !totpEnabled,
-		"username":     username,
-		"role":         role,
+		"totp_setup":    !totpEnabled,
+		"username":      username,
+		"role":          role,
 	})
 }
 
@@ -295,7 +303,7 @@ func VerifyTOTP(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
 	}
 
-	staffID, _, err := parseStep1Token(req.Step1Token)
+	staffID, _, err := ParseStep1Token(req.Step1Token)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Session expired. Please login again."})
 	}
@@ -321,6 +329,9 @@ func VerifyTOTP(c *fiber.Ctx) error {
 	code := strings.TrimSpace(req.TOTPCode)
 
 	if totpEnabled {
+		if code == "" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Authentication code is required"})
+		}
 		valid := verifyTOTP(totpSecret, code)
 		if !valid {
 			// Try recovery code
@@ -334,6 +345,10 @@ func VerifyTOTP(c *fiber.Ctx) error {
 			codesArr := "{" + strings.Join(quoteStrings(recoveryCodes), ",") + "}"
 			_, _ = database.Pool.Exec(ctx, "UPDATE admin_staff SET recovery_codes = $1 WHERE id = $2", codesArr, staffID)
 		}
+	} else {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "Two-factor setup is required before an admin session can be issued",
+		})
 	}
 
 	adminToken, err := generateAdminToken(staffID, username, role)
@@ -346,7 +361,7 @@ func VerifyTOTP(c *fiber.Ctx) error {
 		`INSERT INTO admin_sessions (staff_id, ip_address, user_agent, expires_at, session_token)
 		 VALUES ($1, $2, $3, $4, $5)`,
 		staffID, c.IP(), string([]byte(c.Get("User-Agent"))[:min(500, len(c.Get("User-Agent")))]),
-		time.Now().Add(12*time.Hour), adminToken[:32],
+		time.Now().Add(12*time.Hour), HashAdminSessionToken(adminToken),
 	)
 
 	// Update last login
@@ -437,10 +452,9 @@ func ConfirmTOTP(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to generate recovery codes"})
 	}
 
-	codesJSON, _ := json.Marshal(hashedCodes)
 	_, err = database.Pool.Exec(ctx,
 		"UPDATE admin_staff SET totp_enabled = true, totp_verified = true, recovery_codes = $1 WHERE id = $2",
-		string(codesJSON), staffID,
+		hashedCodes, staffID,
 	)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to activate TOTP"})

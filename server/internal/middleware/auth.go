@@ -1,13 +1,16 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 
 	"server/internal/config"
+	"server/internal/database"
 )
 
 func RequireAuth() fiber.Handler {
@@ -51,6 +54,17 @@ func RequireAuth() fiber.Handler {
 		}
 
 		role, _ := claims["role"].(string)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		var status string
+		if err := database.Pool.QueryRow(ctx, "SELECT COALESCE(status, 'active') FROM users WHERE id = $1", userID).Scan(&status); err != nil {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "User account no longer exists"})
+		}
+		if status != "active" {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "User account is not active. Please re-authenticate or contact support."})
+		}
 
 		// Persist credentials in Fiber context variables
 		c.Locals("userID", userID)

@@ -45,8 +45,11 @@ next-env.d.ts
 *.tar.gz
 *.zip
 eslint-report.json
+lint-current.txt
+go-build-current.txt
 
 # server binaries
+*.exe
 /server/server_api
 /server/server_api_linux
 /server/server_api_linux_new

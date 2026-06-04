@@ -104,6 +104,7 @@ func GetUsers(c *fiber.Ctx) error {
 		Username           string   `json:"username"`
 		Name               string   `json:"name"`
 		Avatar             string   `json:"avatar"`
+		Email              string   `json:"email"`
 		Role               string   `json:"role"`
 		Status             string   `json:"status"`
 		Verified           bool     `json:"verified"`
@@ -211,6 +212,7 @@ func GetUsers(c *fiber.Ctx) error {
 			Username:           uUsername,
 			Name:               uName,
 			Avatar:             uAvatar,
+			Email:              email,
 			Role:               role,
 			Status:             status,
 			Verified:           uKycVerified,
@@ -356,7 +358,10 @@ func GetFlaggedContent(c *fiber.Ctx) error {
 			decision = "shadowbanned"
 		}
 
-		nudity := 15; violence := 8; spam := 10; copyright := 5
+		nudity := 15
+		violence := 8
+		spam := 10
+		copyright := 5
 		lReason := strings.ToLower(reason)
 		if strings.Contains(lReason, "nudity") || strings.Contains(lReason, "adult") {
 			nudity = 94
@@ -394,19 +399,8 @@ func GetFlaggedContent(c *fiber.Ctx) error {
 		list = append(list, item)
 	}
 
-	if len(list) == 0 {
-		mockItem := FlaggedItem{
-			ID: "demo_flagged_1", CreatorUsername: "lanarhoades",
-			CreatorAvatar: "/assets/082f4723389abb44b68b64dfc082268b.png",
-			Content: "Hd premium shoot preview gallery.",
-			MediaUrl: "/assets/082f4723389abb44b68b64dfc082268b.png",
-			MediaType: "image", Reason: "Copyright Claim / Policy Audit Check",
-			ReportedBy: "@copyright_bot", AIScore: 94, Decision: "shadowbanned",
-		}
-		mockItem.AIBreakdown.Nudity = 15; mockItem.AIBreakdown.Violence = 5
-		mockItem.AIBreakdown.Spam = 12; mockItem.AIBreakdown.Copyright = 94
-		mockItem.Comments = []string{"Great post!", "reported for verification"}
-		list = append(list, mockItem)
+	if list == nil {
+		list = []FlaggedItem{}
 	}
 
 	return c.JSON(list)
@@ -421,26 +415,40 @@ func ModeratePost(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
 
-	if strings.HasPrefix(id, "demo_") {
-		return c.JSON(fiber.Map{"message": "Post moderated successfully", "decision": req.Decision})
+	validDecisions := map[string]bool{
+		"approve": true, "approved": true, "hidden": true,
+		"shadowbanned": true, "age_gate": true, "delete": true,
+	}
+	if !validDecisions[req.Decision] {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid moderation decision"})
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var err error
+	var rowsAffected int64
 	if req.Decision == "delete" {
-		_, err = database.Pool.Exec(ctx, "DELETE FROM posts WHERE id = $1", id)
+		cmd, execErr := database.Pool.Exec(ctx, "DELETE FROM posts WHERE id = $1", id)
+		err = execErr
+		rowsAffected = cmd.RowsAffected()
 	} else {
 		status := "published"
 		if req.Decision == "hidden" || req.Decision == "shadowbanned" {
 			status = "archived"
+		} else if req.Decision == "age_gate" {
+			status = "age_gate"
 		}
-		_, err = database.Pool.Exec(ctx, "UPDATE posts SET status = $1 WHERE id = $2", status, id)
+		cmd, execErr := database.Pool.Exec(ctx, "UPDATE posts SET status = $1 WHERE id = $2", status, id)
+		err = execErr
+		rowsAffected = cmd.RowsAffected()
 	}
 
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to moderate post"})
+	}
+	if rowsAffected == 0 {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Post not found"})
 	}
 
 	logAction(c, "content.moderated", "post", id, map[string]interface{}{"decision": req.Decision})
@@ -499,7 +507,7 @@ func GetAppeals(c *fiber.Ctx) error {
 		item := AppealItem{
 			ID: id, Username: username, Avatar: avatar,
 			Type: appealType, Status: status, Description: description,
-			CreatedAt: createdAt.Format("2006-01-02 15:04:05"),
+			CreatedAt:        createdAt.Format("2006-01-02 15:04:05"),
 			SelfieMatchScore: selfieMatchScore, RecoveryStep: recoveryStep,
 			AuditLogs: []string{
 				"2026-06-03 12:44:10 - Alert: Login detected from new IP address mapping.",
@@ -519,18 +527,35 @@ func UpdateAppeal(c *fiber.Ctx) error {
 	if err := c.BodyParser(req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid body"})
 	}
+	if req.Status != "" {
+		validStatuses := map[string]bool{"pending": true, "resolved": true, "rejected": true}
+		if !validStatuses[req.Status] {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid appeal status"})
+		}
+	}
+	if req.RecoveryStep < 0 || req.RecoveryStep > 5 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Recovery step must be between 0 and 5"})
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var err error
+	var rowsAffected int64
 	if req.Status != "" {
-		_, err = database.Pool.Exec(ctx, "UPDATE admin_appeals SET status = $1, recovery_step = $2 WHERE id = $3", req.Status, req.RecoveryStep, id)
+		cmd, execErr := database.Pool.Exec(ctx, "UPDATE admin_appeals SET status = $1, recovery_step = $2 WHERE id = $3", req.Status, req.RecoveryStep, id)
+		err = execErr
+		rowsAffected = cmd.RowsAffected()
 	} else {
-		_, err = database.Pool.Exec(ctx, "UPDATE admin_appeals SET recovery_step = $1 WHERE id = $2", req.RecoveryStep, id)
+		cmd, execErr := database.Pool.Exec(ctx, "UPDATE admin_appeals SET recovery_step = $1 WHERE id = $2", req.RecoveryStep, id)
+		err = execErr
+		rowsAffected = cmd.RowsAffected()
 	}
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update appeal"})
+	}
+	if rowsAffected == 0 {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Appeal not found"})
 	}
 
 	logAction(c, "appeal.updated", "appeal", id, map[string]interface{}{"status": req.Status, "step": req.RecoveryStep})
@@ -543,11 +568,11 @@ func MassBanBots(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := database.Pool.Exec(ctx, `
+	cmd, err := database.Pool.Exec(ctx, `
 		UPDATE users
 		SET status = 'suspended'
-		WHERE email LIKE '%bot%' OR email LIKE '%fake%' OR id IN (
-			SELECT user_id FROM profiles WHERE username LIKE '%bot%' OR username LIKE '%spam%'
+		WHERE LOWER(email) LIKE '%bot%' OR LOWER(email) LIKE '%fake%' OR LOWER(email) LIKE '%spam%' OR id IN (
+			SELECT user_id FROM profiles WHERE LOWER(username) LIKE '%bot%' OR LOWER(username) LIKE '%spam%'
 		)
 	`)
 	if err != nil {
@@ -555,8 +580,9 @@ func MassBanBots(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to run mass ban"})
 	}
 
-	logAction(c, "security.mass_ban", "system", "all", map[string]interface{}{"scope": "bot_accounts"})
-	return c.JSON(fiber.Map{"message": "Mass ban security scan executed successfully"})
+	affected := cmd.RowsAffected()
+	logAction(c, "security.mass_ban", "system", "all", map[string]interface{}{"scope": "bot_accounts", "affected": affected})
+	return c.JSON(fiber.Map{"message": "Mass ban security scan executed successfully", "affected": affected})
 }
 
 type SpamAlert struct {
@@ -576,7 +602,7 @@ func GetSecurityAlerts(c *fiber.Ctx) error {
 		SELECT p.username, u.email, u.created_at
 		FROM users u
 		JOIN profiles p ON p.user_id = u.id
-		WHERE (u.email LIKE '%bot%' OR u.email LIKE '%spam%' OR p.username LIKE '%bot%' OR p.username LIKE '%spam%')
+		WHERE (LOWER(u.email) LIKE '%bot%' OR LOWER(u.email) LIKE '%spam%' OR LOWER(p.username) LIKE '%bot%' OR LOWER(p.username) LIKE '%spam%')
 		  AND u.status != 'suspended'
 	`)
 	if err != nil {
@@ -594,11 +620,17 @@ func GetSecurityAlerts(c *fiber.Ctx) error {
 			continue
 		}
 
-		alertType := "comment_spike"; value := "74 comments / second"; severity := "critical"
+		alertType := "comment_spike"
+		value := "74 comments / second"
+		severity := "critical"
 		if index%3 == 1 {
-			alertType = "follow_spike"; value = "320 follows / minute"; severity = "high"
+			alertType = "follow_spike"
+			value = "320 follows / minute"
+			severity = "high"
 		} else if index%3 == 2 {
-			alertType = "dm_spike"; value = "95 DMs / second"; severity = "critical"
+			alertType = "dm_spike"
+			value = "95 DMs / second"
+			severity = "critical"
 		}
 
 		alerts = append(alerts, SpamAlert{
@@ -788,10 +820,10 @@ func GetUserGrowthStats(c *fiber.Ctx) error {
 	defer cancel()
 
 	type DailyGrowth struct {
-		Date    string `json:"date"`
-		Signups int    `json:"signups"`
-		Fans    int    `json:"fans"`
-		Creators int   `json:"creators"`
+		Date     string `json:"date"`
+		Signups  int    `json:"signups"`
+		Fans     int    `json:"fans"`
+		Creators int    `json:"creators"`
 	}
 
 	rows, err := database.Pool.Query(ctx, `
@@ -840,13 +872,16 @@ func ForceLogoutUser(c *fiber.Ctx) error {
 	// For now, we record this action — actual session invalidation depends on
 	// whether you store session tokens; if using stateless JWT,
 	// the token still lives until expiry, but we can set a flag.
-	_, err := database.Pool.Exec(ctx, `
+	cmd, err := database.Pool.Exec(ctx, `
 		UPDATE users SET status = 'restricted'
 		WHERE id = (SELECT user_id FROM profiles WHERE username = $1)
 		  AND status = 'active'
 	`, username)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to force logout user"})
+	}
+	if cmd.RowsAffected() == 0 {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Active user profile not found"})
 	}
 
 	logAction(c, "user.force_logout", "user", username, map[string]interface{}{})
@@ -899,14 +934,14 @@ func GetAuditLogs(c *fiber.Ctx) error {
 	defer rows.Close()
 
 	type LogItem struct {
-		ID           string      `json:"id"`
-		AdminUsername string     `json:"adminUsername"`
-		AdminRole    string      `json:"adminRole"`
-		Action       string      `json:"action"`
-		TargetType   string      `json:"targetType"`
-		TargetID     string      `json:"targetId"`
-		Details      interface{} `json:"details"`
-		CreatedAt    string      `json:"createdAt"`
+		ID            string      `json:"id"`
+		AdminUsername string      `json:"adminUsername"`
+		AdminRole     string      `json:"adminRole"`
+		Action        string      `json:"action"`
+		TargetType    string      `json:"targetType"`
+		TargetID      string      `json:"targetId"`
+		Details       interface{} `json:"details"`
+		CreatedAt     string      `json:"createdAt"`
 	}
 
 	var logs []LogItem

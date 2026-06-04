@@ -28,7 +28,7 @@ export const Sidebar: React.FC = () => {
 
   return (
     <aside
-      className={`fixed left-0 top-0 z-50 flex h-full flex-col border-r border-border bg-surface py-5 transition-all duration-300 ${
+      className={`fixed left-0 top-0 z-50 flex h-full flex-col bg-surface py-5 transition-all duration-300 ${
         isCollapsed ? "w-[80px] px-3" : "w-[260px] px-5"
       } max-md:hidden`}
     >

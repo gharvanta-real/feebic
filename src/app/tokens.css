@@ -1,7 +1,7 @@
 /* Felbic Design System Tokens */
 :root {
   /* Common System Spacings & Typography */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-sans: 'Roboto', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --radius-xs: 4px;
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -23,18 +23,18 @@
   /* LIGHT MODE (Default Colors) */
   --background-hsl: 0 0% 100%; /* Pure white #ffffff */
   --surface-hsl: 0 0% 100%;       /* Pure white #ffffff */
-  --border-hsl: 214 32% 91%;       /* Thin ice grey #e2e8f0 */
-  --border-alpha: 0.58;
-  --border-strong-alpha: 0.78;
+  --border-hsl: 0 0% 90%;       /* Thin grey #e5e5e5 */
+  --border-alpha: 1;
+  --border-strong-alpha: 1;
   
-  --text-main-hsl: 222 47% 11%;   /* Obsidian charcoal #0f172a */
-  --text-muted-hsl: 215 16% 47%;  /* Soft slate grey #64748b */
+  --text-main-hsl: 0 0% 6%;   /* YouTube almost black #0f0f0f */
+  --text-muted-hsl: 0 0% 38%;  /* Soft grey #606060 */
   
-  --primary-hsl: 196 100% 47%;     /* Premium sky blue #00aff0 */
-  --primary-hover-hsl: 196 100% 40%;
+  --primary-hsl: 0 100% 50%;     /* YouTube brand red #ff0000 */
+  --primary-hover-hsl: 0 100% 40%;
   
-  --accent-hsl: 330 81% 60%;      /* Subtle pink #db2777 for locked posts */
-  --success-hsl: 142 71% 45%;     /* Clean emerald #10b981 for monetization */
+  --accent-hsl: 0 100% 50%;      /* YouTube brand red #ff0000 */
+  --success-hsl: 151 79% 34%;     /* Google green #0f9d58 */
   
   --background: hsl(var(--background-hsl));
   --surface: hsl(var(--surface-hsl));
@@ -44,8 +44,17 @@
   --text-muted: hsl(var(--text-muted-hsl));
   --primary: hsl(var(--primary-hsl));
   --primary-hover: hsl(var(--primary-hover-hsl));
+  --primary-gradient: linear-gradient(135deg, hsl(0 100% 50%) 0%, hsl(13 100% 55%) 100%);
+  --primary-gradient-hover: linear-gradient(135deg, hsl(0 100% 42%) 0%, hsl(13 100% 47%) 100%);
   --accent: hsl(var(--accent-hsl));
   --success: hsl(var(--success-hsl));
+  
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-text-main: var(--text-main);
+  --color-text-muted: var(--text-muted);
+  --color-primary: var(--primary);
   
   --scrollbar-track: #f1f5f9;
   --scrollbar-thumb: #cbd5e1;
@@ -53,20 +62,20 @@
 
 /* DARK MODE */
 [data-theme='dark'] {
-  --background-hsl: 222 47% 6%;   /* Stealth dark navy #090d16 */
-  --surface-hsl: 222 47% 6%;      /* Night slate card matches background #090d16 */
-  --border-hsl: 222 47% 16%;      /* Deep stealth border #1e293b */
-  --border-alpha: 0.62;
-  --border-strong-alpha: 0.8;
+  --background-hsl: 0 0% 6%;   /* YouTube dark theme bg #0f0f0f */
+  --surface-hsl: 0 0% 12%;      /* YouTube dark theme surfaces #1f1f1f */
+  --border-hsl: 0 0% 19%;      /* YouTube dark theme borders #303030 */
+  --border-alpha: 1;
+  --border-strong-alpha: 1;
   
-  --text-main-hsl: 210 40% 98%;   /* Soft winter snow #f8fafc */
-  --text-muted-hsl: 215 20% 65%;  /* Slate light grey #94a3b8 */
+  --text-main-hsl: 0 0% 95%;   /* YouTube soft white #f1f1f1 */
+  --text-muted-hsl: 0 0% 67%;  /* YouTube soft grey #aaaaaa */
   
-  --primary-hsl: 196 100% 50%;     /* Vibrant OnlyFans neon sky blue */
-  --primary-hover-hsl: 196 100% 43%;
+  --primary-hsl: 0 100% 50%;     /* YouTube brand red #ff0000 */
+  --primary-hover-hsl: 0 100% 40%;
   
-  --accent-hsl: 330 85% 65%;      /* Vivid locked pink #f472b6 */
-  --success-hsl: 142 70% 50%;     /* Vibrant emerald #34d399 */
+  --accent-hsl: 0 100% 50%;      /* YouTube brand red #ff0000 */
+  --success-hsl: 130 59% 41%;     /* Google green dark mode #2ba640 */
   
   --background: hsl(var(--background-hsl));
   --surface: hsl(var(--surface-hsl));
@@ -76,8 +85,17 @@
   --text-muted: hsl(var(--text-muted-hsl));
   --primary: hsl(var(--primary-hsl));
   --primary-hover: hsl(var(--primary-hover-hsl));
+  --primary-gradient: linear-gradient(135deg, hsl(0 100% 50%) 0%, hsl(13 100% 55%) 100%);
+  --primary-gradient-hover: linear-gradient(135deg, hsl(0 100% 42%) 0%, hsl(13 100% 47%) 100%);
   --accent: hsl(var(--accent-hsl));
   --success: hsl(var(--success-hsl));
+  
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-text-main: var(--text-main);
+  --color-text-muted: var(--text-muted);
+  --color-primary: var(--primary);
   
   --scrollbar-track: #0f172a;
   --scrollbar-thumb: #334155;

@@ -1,4 +1,5 @@
 @import url("https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block");
+@import url("https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap");
 @import "tailwindcss";
 @import "./tokens.css";
 
@@ -354,3 +355,209 @@ video:not(.rounded-full) {
 .bg-radial-glow {
   background: radial-gradient(circle at 50% 50%, hsla(var(--primary-hsl) / 0.08) 0%, transparent 70%);
 }
+
+/* ==========================================================================
+   Admin Operations Center — Global UI/UX Theme Polish & Casing Overrides
+   ========================================================================== */
+
+/* 1. Theme Color Visibilities for Inputs, Dropdowns and Textareas */
+main select,
+.app-page-shell select {
+  background-color: var(--surface) !important;
+  color: var(--text-main) !important;
+  border: 1px solid var(--border) !important;
+}
+
+main select option,
+.app-page-shell select option {
+  background-color: var(--surface) !important;
+  color: var(--text-main) !important;
+}
+
+main input[type="text"],
+main input[type="email"],
+main input[type="password"],
+.app-page-shell input[type="text"],
+.app-page-shell input[type="email"],
+.app-page-shell input[type="password"] {
+  background-color: var(--background) !important;
+  color: var(--text-main) !important;
+  border: 1px solid var(--border) !important;
+}
+
+main textarea,
+.app-page-shell textarea {
+  background-color: var(--background) !important;
+  color: var(--text-main) !important;
+  border: 1px solid var(--border) !important;
+}
+
+/* 2. Casing & Typography Adjustments (Disabling pure uppercase) */
+main .uppercase,
+.app-page-shell .uppercase,
+main th.uppercase,
+.app-page-shell th.uppercase,
+main h2.uppercase,
+.app-page-shell h2.uppercase,
+main h4.uppercase,
+.app-page-shell h4.uppercase {
+  text-transform: none !important;
+  letter-spacing: normal !important;
+}
+
+/* 3. Fixing Hardcoded Slate Background Blobs for Light/Dark Mode Compatibility */
+main .bg-slate-950,
+.app-page-shell .bg-slate-950 {
+  background-color: var(--surface) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border) !important;
+}
+
+main .bg-slate-950\/20,
+main .bg-slate-950\/30,
+main .bg-slate-950\/40,
+main .bg-slate-950\/60,
+.app-page-shell .bg-slate-950\/20,
+.app-page-shell .bg-slate-950\/30,
+.app-page-shell .bg-slate-950\/40,
+.app-page-shell .bg-slate-950\/60 {
+  background-color: hsl(var(--border-hsl) / 0.15) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border) !important;
+}
+
+/* Retain readable dark backgrounds strictly for code and JSON block viewers */
+main pre.bg-slate-950,
+.app-page-shell pre.bg-slate-950 {
+  background-color: #0c0f17 !important;
+  color: #38bdf8 !important;
+  border: 1px solid var(--border) !important;
+}
+
+/* 4. Fix White-on-Light text visibilities */
+main .text-white,
+.app-page-shell .text-white {
+  color: var(--text-main) !important;
+}
+
+/* Preserve true white text for clickable elements, status alerts, specific tags and dark elements */
+main button,
+main a,
+main button *,
+main a *,
+main .bg-emerald-500,
+main .bg-emerald-500 *,
+main .bg-emerald-600,
+main .bg-emerald-600 *,
+main .bg-red-500,
+main .bg-red-500 *,
+main .bg-red-600,
+main .bg-red-600 *,
+main .bg-amber-500,
+main .bg-amber-500 *,
+main .bg-sky-500,
+main .bg-sky-500 *,
+main .bg-primary,
+main .bg-primary *,
+main [class*="bg-slate-900"],
+main [class*="bg-slate-900"] *,
+main [class*="bg-slate-950"],
+main [class*="bg-slate-950"] *,
+main pre,
+main pre *,
+main code,
+main code *,
+.app-page-shell button,
+.app-page-shell a,
+.app-page-shell button *,
+.app-page-shell a *,
+.app-page-shell .bg-emerald-500,
+.app-page-shell .bg-emerald-500 *,
+.app-page-shell .bg-emerald-600,
+.app-page-shell .bg-emerald-600 *,
+.app-page-shell .bg-red-500,
+.app-page-shell .bg-red-500 *,
+.app-page-shell .bg-red-600,
+.app-page-shell .bg-red-600 *,
+.app-page-shell .bg-amber-500,
+.app-page-shell .bg-amber-500 *,
+.app-page-shell .bg-sky-500,
+.app-page-shell .bg-sky-500 *,
+.app-page-shell .bg-primary,
+.app-page-shell .bg-primary *,
+.app-page-shell [class*="bg-slate-900"],
+.app-page-shell [class*="bg-slate-900"] *,
+.app-page-shell [class*="bg-slate-950"],
+.app-page-shell [class*="bg-slate-950"] *,
+.app-page-shell pre,
+.app-page-shell pre *,
+.app-page-shell code,
+.app-page-shell code * {
+  --override-text-white-target: true;
+}
+
+/* Re-assert white text for elements matching the exception selectors */
+main button.text-white,
+main a.text-white,
+main button .text-white,
+main a .text-white,
+main .bg-emerald-500.text-white,
+main .bg-emerald-500 .text-white,
+main .bg-emerald-600.text-white,
+main .bg-emerald-600 .text-white,
+main .bg-red-500.text-white,
+main .bg-red-500 .text-white,
+main .bg-red-600.text-white,
+main .bg-red-600 .text-white,
+main .bg-amber-500.text-white,
+main .bg-amber-500 .text-white,
+main .bg-sky-500.text-white,
+main .bg-sky-500 .text-white,
+main .bg-primary.text-white,
+main .bg-primary .text-white,
+main [class*="bg-slate-900"].text-white,
+main [class*="bg-slate-900"] .text-white,
+main [class*="bg-slate-950"].text-white,
+main [class*="bg-slate-950"] .text-white,
+main pre.text-white,
+main pre .text-white,
+main code.text-white,
+main code .text-white,
+.app-page-shell button.text-white,
+.app-page-shell a.text-white,
+.app-page-shell button .text-white,
+.app-page-shell a .text-white,
+.app-page-shell .bg-emerald-500.text-white,
+.app-page-shell .bg-emerald-500 .text-white,
+.app-page-shell .bg-emerald-600.text-white,
+.app-page-shell .bg-emerald-600 .text-white,
+.app-page-shell .bg-red-500.text-white,
+.app-page-shell .bg-red-500 .text-white,
+.app-page-shell .bg-red-600.text-white,
+.app-page-shell .bg-red-600 .text-white,
+.app-page-shell .bg-amber-500.text-white,
+.app-page-shell .bg-amber-500 .text-white,
+.app-page-shell .bg-sky-500.text-white,
+.app-page-shell .bg-sky-500 .text-white,
+.app-page-shell .bg-primary.text-white,
+.app-page-shell .bg-primary .text-white,
+.app-page-shell [class*="bg-slate-900"].text-white,
+.app-page-shell [class*="bg-slate-900"] .text-white,
+.app-page-shell [class*="bg-slate-950"].text-white,
+.app-page-shell [class*="bg-slate-950"] .text-white,
+.app-page-shell pre.text-white,
+.app-page-shell pre .text-white,
+.app-page-shell code.text-white,
+.app-page-shell code .text-white {
+  color: #ffffff !important;
+}
+
+/* Override background utilities for primary to support gradients */
+.bg-primary {
+  background: var(--primary-gradient) !important;
+}
+.hover\:bg-primary-hover:hover {
+  background: var(--primary-gradient-hover) !important;
+}
+
+

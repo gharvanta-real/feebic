@@ -35,13 +35,13 @@ func SetupRoutes(app *fiber.App) {
 	// ── 2. Admin Auth Routes (DEDICATED — separate from user auth) ─────────────
 	// These use AdminJWTSecret and admin_staff table — NOT the users table
 	adminAuthGroup := api.Group("/admin-auth")
-	adminAuthGroup.Post("/login", adminauth.Login)          // Step 1: email+password → step1_token
+	adminAuthGroup.Post("/login", adminauth.Login)            // Step 1: email+password → step1_token
 	adminAuthGroup.Post("/totp/verify", adminauth.VerifyTOTP) // Step 2: TOTP code → full admin JWT
 	adminAuthGroup.Post("/logout", middleware.RequireAdminAuth(), adminauth.Logout)
 	adminAuthGroup.Get("/me", middleware.RequireAdminAuth(), adminauth.GetMe)
 	// TOTP setup routes (require valid admin JWT but TOTP not yet enabled)
-	adminAuthGroup.Post("/totp/setup", middleware.RequireAdminAuth(), adminauth.SetupTOTP)
-	adminAuthGroup.Post("/totp/confirm", middleware.RequireAdminAuth(), adminauth.ConfirmTOTP)
+	adminAuthGroup.Post("/totp/setup", middleware.RequireAdminStep1Auth(), adminauth.SetupTOTP)
+	adminAuthGroup.Post("/totp/confirm", middleware.RequireAdminStep1Auth(), adminauth.ConfirmTOTP)
 	// Staff management routes
 	adminAuthGroup.Get("/staff", middleware.RequireAdminAuth(), adminauth.GetStaffList)
 	adminAuthGroup.Post("/staff", middleware.RequireAdminAuth(), middleware.RequireAdminRole("admin"), adminauth.CreateStaff)
@@ -197,4 +197,9 @@ func SetupRoutes(app *fiber.App) {
 
 	// Audit Logs
 	adminGroup.Get("/audit-logs", admin.GetAuditLogs)
+
+	// Server Health & Storage Infrastructure Stats
+	adminGroup.Get("/health", admin.GetServerHealth)
+	adminGroup.Get("/storage/stats", admin.GetStorageStats)
+	adminGroup.Get("/api-health", admin.GetApiHealth)
 }

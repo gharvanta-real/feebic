@@ -380,10 +380,69 @@ CREATE TABLE IF NOT EXISTS admin_appeals (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS admin_staff (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username VARCHAR(50) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL DEFAULT 'PLACEHOLDER_WILL_BE_SET_ON_FIRST_LOGIN',
+    role VARCHAR(20) NOT NULL DEFAULT 'moderator' CHECK (role IN ('admin', 'moderator', 'support')),
+    totp_secret TEXT,
+    totp_enabled BOOLEAN DEFAULT false,
+    totp_verified BOOLEAN DEFAULT false,
+    recovery_codes TEXT[] DEFAULT '{}',
+    created_by UUID,
+    is_active BOOLEAN DEFAULT true NOT NULL,
+    last_login TIMESTAMPTZ,
+    last_login_ip TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS admin_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    staff_id UUID NOT NULL REFERENCES admin_staff(id) ON DELETE CASCADE,
+    session_token TEXT UNIQUE NOT NULL,
+    ip_address TEXT,
+    user_agent TEXT,
+    expires_at TIMESTAMPTZ NOT NULL,
+    is_revoked BOOLEAN DEFAULT false NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS admin_audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    admin_username VARCHAR(50) NOT NULL,
+    admin_role VARCHAR(20) NOT NULL,
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL DEFAULT 'system',
+    target_id TEXT NOT NULL DEFAULT '',
+    details JSONB DEFAULT '{}'::jsonb,
+    ip_address TEXT,
+    user_agent TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS platform_state (
+    key TEXT PRIMARY KEY,
+    value JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_by TEXT,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS platform_settings (
     key VARCHAR(255) PRIMARY KEY,
     value JSONB NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_staff_id ON admin_sessions(staff_id);
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_token ON admin_sessions(session_token);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_username ON admin_audit_logs(admin_username);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON admin_audit_logs(action);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON admin_audit_logs(created_at DESC);
+
+INSERT INTO platform_state (key, value, updated_by)
+VALUES ('lockdown', '{"lockdown": false, "maintenance": false, "reason": ""}'::jsonb, 'system')
+ON CONFLICT (key) DO NOTHING;
 `
 
 func RunMigrations() error {
@@ -406,8 +465,19 @@ func RunMigrations() error {
 }
 
 func seedAdminData(ctx context.Context) error {
+	var staffCount int
+	err := Pool.QueryRow(ctx, "SELECT COUNT(*) FROM admin_staff").Scan(&staffCount)
+	if err == nil && staffCount == 0 {
+		log.Println("Seeding initial admin staff account...")
+		_, _ = Pool.Exec(ctx, `
+			INSERT INTO admin_staff (username, email, password_hash, role, is_active)
+			VALUES ('gharvanta', 'gharvanta@gmail.com', 'PLACEHOLDER_WILL_BE_SET_ON_FIRST_LOGIN', 'admin', true)
+			ON CONFLICT (email) DO NOTHING
+		`)
+	}
+
 	var appealsCount int
-	err := Pool.QueryRow(ctx, "SELECT COUNT(*) FROM admin_appeals").Scan(&appealsCount)
+	err = Pool.QueryRow(ctx, "SELECT COUNT(*) FROM admin_appeals").Scan(&appealsCount)
 	if err == nil && appealsCount == 0 {
 		log.Println("🌱 Seeding default admin appeals...")
 		_, _ = Pool.Exec(ctx, `
@@ -433,7 +503,7 @@ func seedAdminData(ctx context.Context) error {
 	if err == nil && botsCount == 0 {
 		log.Println("🌱 Seeding default bot accounts...")
 		testHash := "$2a$10$tM6n66nfeZgM.oN/F0cMPO6F3r4x02uTir1tS3e0a.1/k.kK4K.Ku" // bcrypt for password123
-		
+
 		var bot1ID, bot2ID, bot3ID string
 		_ = Pool.QueryRow(ctx, "INSERT INTO users (email, password_hash, role, status, ip, location, device) VALUES ('bot33@spam.com', $1, 'fan', 'active', '49.15.220.10', 'Kolkata, India', 'OnePlus 12') RETURNING id", testHash).Scan(&bot1ID)
 		_ = Pool.QueryRow(ctx, "INSERT INTO users (email, password_hash, role, status, ip, location, device) VALUES ('bot9@spam.com', $1, 'fan', 'active', '103.24.120.45', 'Delhi, India', 'Xiaomi 13') RETURNING id", testHash).Scan(&bot2ID)
@@ -452,7 +522,6 @@ func seedAdminData(ctx context.Context) error {
 
 	return nil
 }
-
 
 func seedDefaultData(ctx context.Context) error {
 	var count int

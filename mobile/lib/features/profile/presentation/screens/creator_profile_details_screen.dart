@@ -283,7 +283,7 @@ class _CreatorProfileDetailsScreenState
                     post.isUnlocked = true;
                   });
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  ScaffoldMessenger.of(this.context).showSnackBar(
                     SnackBar(
                       content: Text(
                           'Content from @${widget.username} unlocked successfully! '),
@@ -299,7 +299,7 @@ class _CreatorProfileDetailsScreenState
                 final errMsg =
                     e.response?.data?['error'] ?? 'Unlock transaction failed';
                 if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
+                ScaffoldMessenger.of(this.context).showSnackBar(
                   SnackBar(
                     content: Text(errMsg),
                     backgroundColor:
@@ -309,7 +309,7 @@ class _CreatorProfileDetailsScreenState
                 );
               } catch (e) {
                 if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
+                ScaffoldMessenger.of(this.context).showSnackBar(
                   SnackBar(
                     content: const Text(
                         'Unlock transaction failed. Please check wallet balance.'),
@@ -551,27 +551,29 @@ class _CreatorProfileDetailsScreenState
                                           description: _subDescription,
                                           isSubscribed: isSubscribed,
                                           onSubscribePressed: () async {
+                                            final messenger =
+                                                ScaffoldMessenger.of(context);
+                                            final creatorUsername =
+                                                widget.username;
                                             if (isSubscribed) {
                                               try {
                                                 final response = await getIt<
                                                         ApiClient>()
                                                     .delete(
-                                                        '/wallet/subscribe/${widget.username}');
+                                                        '/wallet/subscribe/$creatorUsername');
                                                 if (response.statusCode ==
                                                     200) {
                                                   DemoAppState
                                                       .instance.subscribedCreators
-                                                      .remove(widget.username);
+                                                      .remove(creatorUsername);
                                                   DemoAppState.instance
                                                       .notifySubscribersChanged();
                                                   _fetchData();
                                                   if (!mounted) return;
-                                                  final ctx = context;
-                                                  ScaffoldMessenger.of(ctx)
-                                                      .showSnackBar(
+                                                  messenger.showSnackBar(
                                                     SnackBar(
                                                       content: Text(
-                                                          'Unsubscribed from @${widget.username}.'),
+                                                          'Unsubscribed from @$creatorUsername.'),
                                                       behavior:
                                                           SnackBarBehavior
                                                               .floating,
@@ -580,8 +582,7 @@ class _CreatorProfileDetailsScreenState
                                                 }
                                               } catch (e) {
                                                 if (!mounted) return;
-                                                ScaffoldMessenger.of(context)
-                                                    .showSnackBar(
+                                                messenger.showSnackBar(
                                                   const SnackBar(
                                                     content: Text(
                                                         'Failed to cancel subscription. Please try again.'),
@@ -599,24 +600,22 @@ class _CreatorProfileDetailsScreenState
                                                   '/wallet/subscribe',
                                                   data: {
                                                     'creator_id':
-                                                        widget.username
+                                                        creatorUsername
                                                   },
                                                 );
                                                 if (response.statusCode ==
                                                     200) {
                                                   DemoAppState
                                                       .instance.subscribedCreators
-                                                      .add(widget.username);
+                                                      .add(creatorUsername);
                                                   DemoAppState.instance
                                                       .notifySubscribersChanged();
                                                   _fetchData();
                                                   if (!mounted) return;
-                                                  final ctx2 = context;
-                                                  ScaffoldMessenger.of(ctx2)
-                                                      .showSnackBar(
+                                                  messenger.showSnackBar(
                                                     SnackBar(
                                                       content: Text(
-                                                          'Subscribed to @${widget.username}!'),
+                                                          'Subscribed to @$creatorUsername!'),
                                                       backgroundColor: isDark
                                                           ? AppColors
                                                               .darkSuccess
@@ -634,9 +633,7 @@ class _CreatorProfileDetailsScreenState
                                                         ?.data?['error'] ??
                                                     'Failed to subscribe';
                                                 if (!mounted) return;
-                                                  final errCtx2 = context;
-                                                ScaffoldMessenger.of(errCtx2)
-                                                    .showSnackBar(
+                                                messenger.showSnackBar(
                                                   SnackBar(
                                                     content: Text(errMsg),
                                                     backgroundColor: isDark
@@ -649,7 +646,7 @@ class _CreatorProfileDetailsScreenState
                                                 );
                                               } catch (e) {
                                                 if (!mounted) return;
-                                                ScaffoldMessenger.of(context)
+                                                ScaffoldMessenger.of(this.context)
                                                     .showSnackBar(
                                                   const SnackBar(
                                                     content: Text(

@@ -42,9 +42,6 @@ func Load() *Config {
 	if jwtSecret == "" {
 		jwtSecret = "felbic-super-secret-jwt-token-key-change-in-production-12345"
 	}
-	if strings.EqualFold(os.Getenv("APP_ENV"), "production") && strings.Contains(jwtSecret, "change-in-production") {
-		log.Fatal("JWT_SECRET must be set to a strong production secret")
-	}
 
 	adminJWTSecret := os.Getenv("ADMIN_JWT_SECRET")
 	if adminJWTSecret == "" {
@@ -54,6 +51,19 @@ func Load() *Config {
 	adminPasswordKey := os.Getenv("ADMIN_PASSWORD_KEY")
 	if adminPasswordKey == "" {
 		adminPasswordKey = "felbic-admin-password-pepper-key-change-in-production"
+	}
+
+	// Enforce strong configurations in production
+	if strings.EqualFold(os.Getenv("APP_ENV"), "production") {
+		if jwtSecret == "felbic-super-secret-jwt-token-key-change-in-production-12345" || strings.Contains(jwtSecret, "change-in-production") {
+			log.Fatal("FATAL SECURITY ERROR: JWT_SECRET must be set to a strong production secret.")
+		}
+		if adminJWTSecret == "felbic-admin-secret-key-completely-separate-from-users-abc987" {
+			log.Fatal("FATAL SECURITY ERROR: ADMIN_JWT_SECRET must be set to a strong production secret in production.")
+		}
+		if adminPasswordKey == "felbic-admin-password-pepper-key-change-in-production" || strings.Contains(adminPasswordKey, "change-in-production") {
+			log.Fatal("FATAL SECURITY ERROR: ADMIN_PASSWORD_KEY must be set to a strong production secret in production.")
+		}
 	}
 
 	cloudinaryFolder := os.Getenv("CLOUDINARY_UPLOAD_FOLDER")

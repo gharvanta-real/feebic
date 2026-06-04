@@ -31,7 +31,7 @@ export const mainNavLinks: NavLink[] = [
   { href: "/lists", label: "Lists", icon: "list_alt", key: "lists", roles: ["fan", "creator"] },
   { href: "/create-post", label: "Create Post", icon: "add_circle", key: "create-post", roles: ["creator"] },
   { href: "/studio", label: "Creator Studio", icon: "dashboard", key: "studio", roles: ["creator"] },
-  { href: "/studio/posts", label: "Manage Posts", icon: "library_rows", key: "studio-posts", roles: ["creator"] },
+  { href: "/studio/posts", label: "Manage Posts", icon: "library_books", key: "studio-posts", roles: ["creator"] },
   { href: "/vault", label: "Media Vault", icon: "perm_media", key: "vault", roles: ["creator"] },
   { href: "/profile", label: "Profile", icon: "person", key: "profile", roles: ["fan", "creator"] },
   { href: "/wallet", label: "Wallet", icon: "account_balance_wallet", key: "wallet", roles: ["fan", "creator"] },
