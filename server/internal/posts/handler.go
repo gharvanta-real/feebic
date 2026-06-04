@@ -1300,10 +1300,52 @@ func RecordInteraction(c *fiber.Ctx) error {
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Interaction type is required"})
 	}
 
+	// 1. Strict Input Sanitization & Validation
+	validTypes := map[string]bool{
+		"view":     true,
+		"click":    true,
+		"like":     true,
+		"bookmark": true,
+		"unlock":   true,
+		"comment":  true,
+	}
+	interactionTypeClean := strings.ToLower(strings.TrimSpace(req.InteractionType))
+	if !validTypes[interactionTypeClean] {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid interaction type"})
+	}
+
+	validCategories := map[string]bool{
+		"Lifestyle":   true,
+		"Photography": true,
+		"Cosplay":     true,
+		"Art":         true,
+		"Fitness":     true,
+	}
+	categoryClean := "Lifestyle"
+	if req.Category != "" {
+		if validCategories[req.Category] {
+			categoryClean = req.Category
+		}
+	}
+
+	dwellTimeClean := req.DwellTimeSeconds
+	if dwellTimeClean < 0 {
+		dwellTimeClean = 0
+	} else if dwellTimeClean > 3600 {
+		dwellTimeClean = 3600 // Cap dwell time at 1 hour to prevent score inflation
+	}
+
+	if req.PostID != "" && len(req.PostID) != 36 {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid Post ID format"})
+	}
+	if req.CreatorID != "" && len(req.CreatorID) != 36 {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "Invalid Creator ID format"})
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	var postIDVal, creatorIDVal, categoryVal interface{}
+	var postIDVal, creatorIDVal interface{}
 	postIDVal = nil
 	if req.PostID != "" {
 		postIDVal = req.PostID
@@ -1312,22 +1354,18 @@ func RecordInteraction(c *fiber.Ctx) error {
 	if req.CreatorID != "" {
 		creatorIDVal = req.CreatorID
 	}
-	categoryVal = "Lifestyle"
-	if req.Category != "" {
-		categoryVal = req.Category
-	}
 
 	_, err := database.Pool.Exec(ctx,
 		`INSERT INTO user_interactions (user_id, post_id, creator_id, interaction_type, dwell_time_seconds, category)
 		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		userID, postIDVal, creatorIDVal, req.InteractionType, req.DwellTimeSeconds, categoryVal,
+		userID, postIDVal, creatorIDVal, interactionTypeClean, dwellTimeClean, categoryClean,
 	)
 	if err != nil {
 		log.Printf("⚠️ Warning: Failed to record interaction: %v", err)
 	}
 
 	var scoreDelta float64 = 1.0
-	switch strings.ToLower(req.InteractionType) {
+	switch interactionTypeClean {
 	case "unlock":
 		scoreDelta = 25.0
 	case "bookmark":
@@ -1337,8 +1375,8 @@ func RecordInteraction(c *fiber.Ctx) error {
 	case "comment":
 		scoreDelta = 4.0
 	case "view":
-		if req.DwellTimeSeconds > 0 {
-			scoreDelta = minFloat(float64(req.DwellTimeSeconds)*0.2, 8.0)
+		if dwellTimeClean > 0 {
+			scoreDelta = minFloat(float64(dwellTimeClean)*0.2, 8.0)
 		} else {
 			scoreDelta = 1.0
 		}
@@ -1354,7 +1392,7 @@ func RecordInteraction(c *fiber.Ctx) error {
 		         to_jsonb(COALESCE((user_interests.interests->>$2::text)::numeric, 0.0) + $3::numeric)
 		     ),
 		     updated_at = NOW()`,
-		userID, categoryVal, scoreDelta,
+		userID, categoryClean, scoreDelta,
 	)
 	if err != nil {
 		log.Printf("⚠️ Warning: Failed to update user interests: %v", err)

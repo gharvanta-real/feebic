@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Creator, Post } from "@/lib/mockDb";
 import { apiClient } from "@/lib/apiClient";
 
-type AdminModule = "overview" | "users" | "content" | "appeals" | "security" | "settings";
+type AdminModule = "overview" | "users" | "content" | "appeals" | "security" | "settings" | "audit_logs" | "staff_manager";
 type UserStatus = "active" | "restricted" | "suspended" | "deactivated";
 type ContentDecision = "approved" | "age_gate" | "shadowbanned" | "hidden";
 type ChartType = "revenue" | "spam" | "growth";
@@ -122,8 +122,12 @@ export default function AdminDashboardPage() {
     }, 2500);
   };
 
-  const handleAdminLogout = () => {
+  const handleAdminLogout = async () => {
+    try {
+      await apiClient.post("/admin-auth/logout");
+    } catch { /* best-effort */ }
     localStorage.removeItem("ch_admin_token");
+    document.cookie = "ch_admin_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
     router.replace("/admin/login");
   };
 
@@ -269,7 +273,8 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // Custom admin profile check & loading loop
+  // Secure admin auth check — uses admin-specific JWT endpoint
+  // NEVER uses /users/profile or hardcoded email checks
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("ch_admin_token") : null;
     if (!token) {
@@ -277,19 +282,21 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    apiClient.get("/users/profile")
-      .then((profile) => {
-        if (profile && (profile.username === "gharvanta" || profile.email === "gharvanta@gmail.com")) {
-          setAdminUser(profile);
+    apiClient.get("/admin-auth/me")
+      .then((adminData) => {
+        if (adminData && adminData.id && adminData.role) {
+          setAdminUser(adminData);
           setLoadingAdmin(false);
         } else {
           localStorage.removeItem("ch_admin_token");
+          document.cookie = "ch_admin_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
           router.replace("/admin/login");
         }
       })
       .catch((err) => {
         console.error("Admin verification error:", err);
         localStorage.removeItem("ch_admin_token");
+        document.cookie = "ch_admin_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
         router.replace("/admin/login");
       });
   }, [router]);
@@ -587,6 +594,8 @@ export default function AdminDashboardPage() {
             { id: "appeals", label: "Appeals Center", icon: "support_agent" },
             { id: "security", label: "Security & Bots", icon: "shield" },
             { id: "settings", label: "Platform Rules", icon: "tune" },
+            { id: "audit_logs", label: "Audit Logs", icon: "history" },
+            ...(adminUser?.role === "admin" ? [{ id: "staff_manager", label: "Staff Manager", icon: "manage_accounts" }] : []),
           ].map(item => {
             const active = activeModule === item.id;
             return (
@@ -660,9 +669,11 @@ export default function AdminDashboardPage() {
               {activeModule === "appeals" && "Appeals & Support Desk"}
               {activeModule === "security" && "Threat & Bot-net Room"}
               {activeModule === "settings" && "Platform Global Controls"}
+              {activeModule === "audit_logs" && "Admin Audit Logs"}
+              {activeModule === "staff_manager" && "Staff Account Manager"}
             </h1>
             <p className="text-[11px] text-text-muted font-medium mt-0.5">
-              Logged in session secure: {adminUser.displayName || adminUser.display_name || "Gharvanta Admin"} (role: {adminUser.role || "admin"})
+              Authenticated: <span className="text-cyan-400 font-bold">@{adminUser.username}</span> · Role: <span className="text-violet-400 font-bold uppercase">{adminUser.role}</span> · 2FA: <span className={adminUser.totp_enabled ? "text-emerald-400" : "text-amber-400"}>{adminUser.totp_enabled ? "Active" : "⚠️ Not Set"}</span>
             </p>
           </div>
 
@@ -1660,6 +1671,16 @@ export default function AdminDashboardPage() {
               </div>
             </section>
           )}
+
+          {/* ── MODULE 7: AUDIT LOGS ── */}
+          {activeModule === "audit_logs" && (
+            <AuditLogsModule adminUser={adminUser} showToast={showToast} />
+          )}
+
+          {/* ── MODULE 8: STAFF MANAGER (admin only) ── */}
+          {activeModule === "staff_manager" && adminUser?.role === "admin" && (
+            <StaffManagerModule adminUser={adminUser} showToast={showToast} />
+          )}
         </div>
       </main>
 
@@ -1675,5 +1696,292 @@ export default function AdminDashboardPage() {
         </div>
       )}
     </div>
+  );
+}
+// ─── Audit Logs Module ────────────────────────────────────────────────────────
+
+type AuditLog = {
+  id: string;
+  adminUsername: string;
+  adminRole: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  details: any;
+  createdAt: string;
+};
+
+function AuditLogsModule({ adminUser, showToast }: { adminUser: any; showToast: (m: string) => void }) {
+  const [logs, setLogs] = React.useState<AuditLog[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [filterAdmin, setFilterAdmin] = React.useState("");
+  const [filterAction, setFilterAction] = React.useState("");
+
+  const loadLogs = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: "100" });
+      if (filterAdmin) params.set("admin", filterAdmin);
+      if (filterAction) params.set("action", filterAction);
+      const data = await apiClient.get<AuditLog[]>(`/admin/audit-logs?${params}`);
+      setLogs(data || []);
+    } catch (err: any) {
+      showToast("Failed to load audit logs: " + (err.message || err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => { loadLogs(); }, []);
+
+  const getActionColor = (action: string) => {
+    if (action.startsWith("auth.")) return "text-cyan-400";
+    if (action.includes("deleted") || action.startsWith("security.")) return "text-red-400";
+    if (action.startsWith("user.")) return "text-violet-400";
+    if (action.startsWith("content.")) return "text-amber-400";
+    if (action.startsWith("platform.")) return "text-orange-400";
+    if (action.startsWith("staff.")) return "text-emerald-400";
+    return "text-text-muted";
+  };
+
+  const exportCSV = () => {
+    const rows = [["Time", "Admin", "Role", "Action", "Target Type", "Target ID"]];
+    logs.forEach(l => rows.push([l.createdAt, l.adminUsername, l.adminRole, l.action, l.targetType, l.targetId]));
+    const csv = rows.map(r => r.map(c => `"${c}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = `audit-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  };
+
+  return (
+    <section className="space-y-5">
+      <div className="bg-surface border border-border rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-sm font-black text-text-main uppercase tracking-wide">Admin Action History</h2>
+            <p className="text-[10px] text-text-muted mt-0.5">Every mutating admin action is permanently recorded in the database</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={exportCSV} className="flex items-center gap-1.5 text-xs font-bold text-text-muted border border-border rounded-lg px-3 py-1.5 hover:border-primary hover:text-primary transition cursor-pointer">
+              <span className="material-symbols-outlined text-[15px]">download</span>Export CSV
+            </button>
+            <button onClick={loadLogs} className="flex items-center gap-1 text-xs font-bold text-primary border border-primary/20 bg-primary/5 rounded-lg px-3 py-1.5 hover:bg-primary hover:text-white transition cursor-pointer">
+              <span className="material-symbols-outlined text-[15px]">refresh</span>Refresh
+            </button>
+          </div>
+        </div>
+        <div className="flex gap-2 mb-4">
+          <input type="text" placeholder="Filter by admin..." value={filterAdmin} onChange={e => setFilterAdmin(e.target.value)}
+            className="flex-1 h-9 bg-background border border-border rounded-lg px-3 text-xs text-text-main outline-none focus:border-primary/50" />
+          <input type="text" placeholder="Filter by action (e.g. user.ban)..." value={filterAction} onChange={e => setFilterAction(e.target.value)}
+            className="flex-1 h-9 bg-background border border-border rounded-lg px-3 text-xs text-text-main outline-none focus:border-primary/50" />
+          <button onClick={loadLogs} className="h-9 px-4 bg-primary/10 border border-primary/20 text-primary font-bold text-xs rounded-lg hover:bg-primary hover:text-white transition cursor-pointer">Search</button>
+        </div>
+        {loading ? (
+          <div className="flex items-center justify-center py-12"><div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>
+        ) : logs.length === 0 ? (
+          <div className="text-center py-12 text-text-muted text-xs">
+            <span className="material-symbols-outlined text-[40px] mb-2 block opacity-30">history</span>
+            No audit logs found. Logs appear after admin actions.
+          </div>
+        ) : (
+          <div className="space-y-1.5 max-h-[600px] overflow-y-auto">
+            {logs.map(log => (
+              <div key={log.id} className="flex items-start gap-3 bg-background border border-border/60 rounded-xl px-4 py-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-[11px] font-black ${getActionColor(log.action)}`}>{log.action}</span>
+                    {log.targetId && <span className="text-[10px] text-text-muted font-medium bg-surface border border-border/50 rounded-md px-1.5 py-0.5">{log.targetType}: {log.targetId}</span>}
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[10px] text-text-muted">by <strong className="text-text-main">@{log.adminUsername}</strong></span>
+                    <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md ${log.adminRole === "admin" ? "bg-red-500/10 text-red-400" : log.adminRole === "moderator" ? "bg-violet-500/10 text-violet-400" : "bg-cyan-500/10 text-cyan-400"}`}>{log.adminRole}</span>
+                  </div>
+                </div>
+                <span className="text-[10px] text-text-muted shrink-0 font-mono">{log.createdAt}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ─── Staff Manager Module ─────────────────────────────────────────────────────
+
+type StaffMember = {
+  id: string;
+  username: string;
+  email: string;
+  role: "admin" | "moderator" | "support";
+  totpEnabled: boolean;
+  isActive: boolean;
+  lastLogin: string;
+  lastLoginIp: string;
+  createdAt: string;
+};
+
+function StaffManagerModule({ adminUser, showToast }: { adminUser: any; showToast: (m: string) => void }) {
+  const [staff, setStaff] = React.useState<StaffMember[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [showCreate, setShowCreate] = React.useState(false);
+  const [creating, setCreating] = React.useState(false);
+  const [newUsername, setNewUsername] = React.useState("");
+  const [newEmail, setNewEmail] = React.useState("");
+  const [newPassword, setNewPassword] = React.useState("");
+  const [newRole, setNewRole] = React.useState<"moderator" | "support" | "admin">("moderator");
+
+  const loadStaff = async () => {
+    setLoading(true);
+    try {
+      const data = await apiClient.get<StaffMember[]>("/admin-auth/staff");
+      setStaff(data || []);
+    } catch (err: any) {
+      showToast("Failed to load staff: " + (err.message || err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => { loadStaff(); }, []);
+
+  const handleCreateStaff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreating(true);
+    try {
+      await apiClient.post("/admin-auth/staff", { username: newUsername, email: newEmail, password: newPassword, role: newRole });
+      showToast(`Staff @${newUsername} created!`);
+      setShowCreate(false); setNewUsername(""); setNewEmail(""); setNewPassword(""); setNewRole("moderator");
+      await loadStaff();
+    } catch (err: any) {
+      showToast("Failed: " + (err.message || err));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDeactivate = async (id: string, username: string) => {
+    if (!confirm(`Deactivate @${username}?`)) return;
+    try {
+      await apiClient.delete(`/admin-auth/staff/${id}`);
+      showToast(`@${username} deactivated`); await loadStaff();
+    } catch (err: any) { showToast("Failed: " + (err.message || err)); }
+  };
+
+  const handleReactivate = async (id: string, username: string) => {
+    try {
+      await apiClient.post(`/admin-auth/staff/${id}/reactivate`);
+      showToast(`@${username} reactivated`); await loadStaff();
+    } catch (err: any) { showToast("Failed: " + (err.message || err)); }
+  };
+
+  const handleChangeRole = async (id: string, username: string, role: string) => {
+    try {
+      await apiClient.put(`/admin-auth/staff/${id}/role`, { role });
+      showToast(`@${username} → ${role}`); await loadStaff();
+    } catch (err: any) { showToast("Failed: " + (err.message || err)); }
+  };
+
+  const roleColors: Record<string, string> = {
+    admin: "bg-red-500/10 text-red-400 border-red-500/20",
+    moderator: "bg-violet-500/10 text-violet-400 border-violet-500/20",
+    support: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
+  };
+
+  return (
+    <section className="space-y-5">
+      <div className="bg-surface border border-border rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-sm font-black text-text-main uppercase tracking-wide">Staff Accounts</h2>
+            <p className="text-[10px] text-text-muted mt-0.5">Create login IDs for your moderation and support team</p>
+          </div>
+          <button onClick={() => setShowCreate(!showCreate)} className="flex items-center gap-1.5 text-xs font-black text-white bg-primary rounded-full px-4 py-2 hover:bg-primary/80 transition cursor-pointer">
+            <span className="material-symbols-outlined text-[16px]">person_add</span>
+            {showCreate ? "Cancel" : "Create Staff"}
+          </button>
+        </div>
+
+        {showCreate && (
+          <form onSubmit={handleCreateStaff} className="bg-background border border-border rounded-xl p-4 mb-5 space-y-3">
+            <h3 className="text-xs font-black text-text-main uppercase tracking-wide">New Staff Account</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-bold uppercase text-text-muted tracking-wider block mb-1">Username</label>
+                <input type="text" value={newUsername} onChange={e => setNewUsername(e.target.value)} required placeholder="staff_username"
+                  className="w-full h-10 bg-surface border border-border rounded-lg px-3 text-xs text-text-main outline-none focus:border-primary/50" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold uppercase text-text-muted tracking-wider block mb-1">Email</label>
+                <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} required placeholder="staff@felbic.com"
+                  className="w-full h-10 bg-surface border border-border rounded-lg px-3 text-xs text-text-main outline-none focus:border-primary/50" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold uppercase text-text-muted tracking-wider block mb-1">Password (min 10)</label>
+                <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={10} placeholder="••••••••••"
+                  className="w-full h-10 bg-surface border border-border rounded-lg px-3 text-xs text-text-main outline-none focus:border-primary/50" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold uppercase text-text-muted tracking-wider block mb-1">Role</label>
+                <select value={newRole} onChange={e => setNewRole(e.target.value as any)}
+                  className="w-full h-10 bg-surface border border-border rounded-lg px-3 text-xs text-text-main outline-none">
+                  <option value="moderator">Moderator</option>
+                  <option value="support">Support</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+            </div>
+            <button type="submit" disabled={creating} className="w-full h-10 bg-primary text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-primary/80 transition cursor-pointer disabled:opacity-50">
+              {creating ? "Creating..." : "Create Staff Account"}
+            </button>
+          </form>
+        )}
+
+        {loading ? (
+          <div className="flex items-center justify-center py-10"><div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>
+        ) : (
+          <div className="space-y-3">
+            {staff.map(s => (
+              <div key={s.id} className={`border rounded-xl p-4 ${s.isActive ? "border-border bg-background" : "border-border/40 bg-background/50 opacity-60"}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-black text-sm">
+                      {s.username[0].toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-black text-text-main">@{s.username}</span>
+                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${roleColors[s.role]}`}>{s.role}</span>
+                        {!s.isActive && <span className="text-[9px] font-black uppercase text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full border border-red-500/20">DEACTIVATED</span>}
+                        {s.totpEnabled ? <span className="text-[9px] text-emerald-400 font-bold">🔒 2FA Active</span> : <span className="text-[9px] text-amber-400 font-bold">⚠️ No 2FA</span>}
+                      </div>
+                      <p className="text-[10px] text-text-muted mt-0.5">{s.email}</p>
+                      <p className="text-[10px] text-text-muted/60">{s.lastLogin ? `Last: ${s.lastLogin} · ${s.lastLoginIp || "unknown IP"}` : "Never logged in"}</p>
+                    </div>
+                  </div>
+                  {s.id !== adminUser?.id ? (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <select value={s.role} onChange={e => handleChangeRole(s.id, s.username, e.target.value)}
+                        className="h-8 bg-surface border border-border rounded-lg px-2 text-[11px] text-text-main outline-none cursor-pointer">
+                        <option value="moderator">Moderator</option>
+                        <option value="support">Support</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                      {s.isActive
+                        ? <button onClick={() => handleDeactivate(s.id, s.username)} className="h-8 px-3 text-[11px] font-bold text-red-400 border border-red-500/20 bg-red-500/5 rounded-lg hover:bg-red-500/10 transition cursor-pointer">Deactivate</button>
+                        : <button onClick={() => handleReactivate(s.id, s.username)} className="h-8 px-3 text-[11px] font-bold text-emerald-400 border border-emerald-500/20 bg-emerald-500/5 rounded-lg hover:bg-emerald-500/10 transition cursor-pointer">Reactivate</button>
+                      }
+                    </div>
+                  ) : (
+                    <span className="text-[10px] text-primary font-bold bg-primary/5 border border-primary/20 px-2 py-1 rounded-lg shrink-0">You</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

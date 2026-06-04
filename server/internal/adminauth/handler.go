@@ -2,9 +2,11 @@ package adminauth
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha1"
 	"encoding/base32"
-	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,7 +50,7 @@ type UpdateStaffRoleRequest struct {
 	Role string `json:"role"`
 }
 
-// ─── JWT helpers ──────────────────────────────────────────────────────────────
+// ─── JWT helpers ───────────────────────────────────────────────────────────────
 
 func generateStep1Token(staffID, email string) (string, error) {
 	cfg := config.Load()
@@ -63,17 +65,14 @@ func generateStep1Token(staffID, email string) (string, error) {
 
 func generateAdminToken(staffID, username, role string) (string, error) {
 	cfg := config.Load()
-	sessionToken, _ := randomHex(32)
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"staff_id":      staffID,
-		"username":      username,
-		"role":          role,
-		"purpose":       "admin_session",
-		"session_token": sessionToken,
-		"exp":           time.Now().Add(12 * time.Hour).Unix(),
+		"staff_id": staffID,
+		"username": username,
+		"role":     role,
+		"purpose":  "admin_session",
+		"exp":      time.Now().Add(12 * time.Hour).Unix(),
 	})
-	signed, err := token.SignedString([]byte(cfg.AdminJWTSecret))
-	return signed, err
+	return token.SignedString([]byte(cfg.AdminJWTSecret))
 }
 
 func parseStep1Token(tokenStr string) (staffID, email string, err error) {
@@ -99,93 +98,81 @@ func parseStep1Token(tokenStr string) (staffID, email string, err error) {
 	return staffID, email, nil
 }
 
-// ─── TOTP helpers (RFC 6238 — Time-based OTP) ─────────────────────────────────
-// We implement a minimal TOTP validator without external libs to keep deps lean.
+// ParseAdminToken validates a full admin session JWT
+func ParseAdminToken(tokenStr string) (staffID, username, role string, err error) {
+	cfg := config.Load()
+	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return []byte(cfg.AdminJWTSecret), nil
+	})
+	if err != nil || !token.Valid {
+		return "", "", "", errors.New("invalid or expired admin token")
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || claims["purpose"] != "admin_session" {
+		return "", "", "", errors.New("invalid token purpose — not an admin session token")
+	}
+	staffID, _ = claims["staff_id"].(string)
+	username, _ = claims["username"].(string)
+	role, _ = claims["role"].(string)
+	if staffID == "" || username == "" || role == "" {
+		return "", "", "", errors.New("incomplete token claims")
+	}
+	return staffID, username, role, nil
+}
+
+// ─── TOTP helpers (RFC 6238) ───────────────────────────────────────────────────
 
 func generateTOTPSecret() (string, error) {
 	b := make([]byte, 20)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
-	return base32.StdEncoding.EncodeToString(b), nil
+	return base32.StdEncoding.WithPadding(base32.StdPadding).EncodeToString(b), nil
 }
 
-func generateTOTPQRURL(secret, email string) string {
+func generateTOTPQRURL(secret, email, issuer string) string {
+	email = strings.ReplaceAll(email, "@", "%40")
 	return fmt.Sprintf(
-		"otpauth://totp/Felbic%%20Admin%%3A%s?secret=%s&issuer=Felbic%%20Ops&algorithm=SHA1&digits=6&period=30",
-		strings.ReplaceAll(email, "@", "%40"),
-		secret,
+		"otpauth://totp/%s%%3A%s?secret=%s&issuer=%s&algorithm=SHA1&digits=6&period=30",
+		issuer, email, secret, strings.ReplaceAll(issuer, " ", "%20"),
 	)
 }
 
-// verifyTOTP checks the TOTP code against the stored secret.
-// It accepts codes from t-1, t, t+1 windows (±30s drift).
+// computeHOTP implements RFC 4226
+func computeHOTP(secret []byte, counter uint64) string {
+	msg := make([]byte, 8)
+	binary.BigEndian.PutUint64(msg, counter)
+	mac := hmac.New(sha1.New, secret)
+	mac.Write(msg)
+	h := mac.Sum(nil)
+	offset := h[len(h)-1] & 0x0f
+	code := (uint32(h[offset]&0x7f)<<24 |
+		uint32(h[offset+1])<<16 |
+		uint32(h[offset+2])<<8 |
+		uint32(h[offset+3])) % 1_000_000
+	return fmt.Sprintf("%06d", code)
+}
+
+// verifyTOTP accepts ±1 window (90s grace)
 func verifyTOTP(secret, code string) bool {
-	secretBytes, err := base32.StdEncoding.DecodeString(strings.ToUpper(secret))
+	secretBytes, err := base32.StdEncoding.WithPadding(base32.StdPadding).DecodeString(strings.ToUpper(secret))
 	if err != nil {
-		return false
+		// Try without padding
+		secretBytes, err = base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(strings.ToUpper(secret))
+		if err != nil {
+			return false
+		}
 	}
-	now := time.Now().Unix() / 30
-	for _, counter := range []int64{now - 1, now, now + 1} {
-		if computeHOTP(secretBytes, counter) == code {
+	counter := uint64(time.Now().Unix() / 30)
+	for _, c := range []uint64{counter - 1, counter, counter + 1} {
+		if computeHOTP(secretBytes, c) == strings.TrimSpace(code) {
 			return true
 		}
 	}
 	return false
-}
-
-func computeHOTP(secret []byte, counter int64) string {
-	// Implements RFC 4226 HOTP
-	import_hmac_sha1 := func(key, data []byte) []byte {
-		import_crypto_hmac := func() {
-			// inline to avoid import cycle — use stdlib
-		}
-		_ = import_crypto_hmac
-		mac := hmacSHA1(key, data)
-		return mac
-	}
-	msg := make([]byte, 8)
-	for i := 7; i >= 0; i-- {
-		msg[i] = byte(counter & 0xff)
-		counter >>= 8
-	}
-	h := import_hmac_sha1(secret, msg)
-	offset := h[len(h)-1] & 0x0f
-	code := (int(h[offset]&0x7f)<<24 |
-		int(h[offset+1])<<16 |
-		int(h[offset+2])<<8 |
-		int(h[offset+3])) % 1000000
-	return fmt.Sprintf("%06d", code)
-}
-
-func hmacSHA1(key, data []byte) []byte {
-	// Using crypto/hmac + crypto/sha1 inline
-	blockSize := 64
-	if len(key) > blockSize {
-		// hash key if longer than block
-		import_sha := sha1sum(key)
-		key = import_sha
-	}
-	ipad := make([]byte, blockSize+len(data))
-	opad := make([]byte, blockSize+20)
-	for i := 0; i < blockSize; i++ {
-		k := byte(0)
-		if i < len(key) {
-			k = key[i]
-		}
-		ipad[i] = k ^ 0x36
-		opad[i] = k ^ 0x5c
-	}
-	copy(ipad[blockSize:], data)
-	inner := sha1sum(ipad)
-	copy(opad[blockSize:], inner)
-	return sha1sum(opad)
-}
-
-func sha1sum(data []byte) []byte {
-	// We need crypto/sha1 — import it properly below
-	// This is handled via actual imports at the top
-	return computeSHA1(data)
 }
 
 // ─── Recovery codes ────────────────────────────────────────────────────────────
@@ -198,8 +185,14 @@ func generateRecoveryCodes(count int) ([]string, []string, error) {
 		if _, err := rand.Read(b); err != nil {
 			return nil, nil, err
 		}
-		code := strings.ToUpper(base32.StdEncoding.EncodeToString(b))[:16]
-		plain[i] = fmt.Sprintf("%s-%s-%s-%s", code[0:4], code[4:8], code[8:12], code[12:16])
+		raw := strings.ToUpper(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b))
+		if len(raw) > 16 {
+			raw = raw[:16]
+		}
+		for len(raw) < 16 {
+			raw += "X"
+		}
+		plain[i] = fmt.Sprintf("%s-%s-%s-%s", raw[0:4], raw[4:8], raw[8:12], raw[12:16])
 		h, err := bcrypt.GenerateFromPassword([]byte(plain[i]), bcrypt.MinCost)
 		if err != nil {
 			return nil, nil, err
@@ -209,31 +202,22 @@ func generateRecoveryCodes(count int) ([]string, []string, error) {
 	return plain, hashed, nil
 }
 
-func verifyRecoveryCode(codes []string, input string) (bool, int) {
-	normalized := strings.ToUpper(strings.ReplaceAll(input, "-", ""))
-	for i, hash := range codes {
-		// Try normalized
+func verifyRecoveryCode(hashedCodes []string, input string) (bool, int) {
+	input = strings.ToUpper(strings.TrimSpace(input))
+	for i, hash := range hashedCodes {
+		if strings.HasPrefix(hash, "USED-") {
+			continue
+		}
 		if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(input)); err == nil {
 			return true, i
 		}
-		_ = normalized
 	}
 	return false, -1
 }
 
-// ─── Misc helpers ──────────────────────────────────────────────────────────────
-
-func randomHex(n int) (string, error) {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base64.URLEncoding.EncodeToString(b)[:n], nil
-}
-
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
-// Step 1: Email + Password check → returns step1_token (short-lived)
+// Step 1: Email + Password → short-lived step1_token
 func Login(c *fiber.Ctx) error {
 	req := new(LoginRequest)
 	if err := c.BodyParser(req); err != nil {
@@ -248,12 +232,12 @@ func Login(c *fiber.Ctx) error {
 	defer cancel()
 
 	var staffID, username, passwordHash, role string
-	var totpEnabled bool
-	var isActive bool
+	var totpEnabled, isActive bool
 
 	err := database.Pool.QueryRow(ctx,
-		`SELECT id, username, password_hash, role, COALESCE(totp_enabled, false), COALESCE(is_active, true)
-		 FROM admin_staff WHERE email = $1`,
+		`SELECT id, username, password_hash, role,
+		        COALESCE(totp_enabled, false), COALESCE(is_active, true)
+		 FROM admin_staff WHERE LOWER(email) = $1`,
 		email,
 	).Scan(&staffID, &username, &passwordHash, &role, &totpEnabled, &isActive)
 
@@ -262,16 +246,21 @@ func Login(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid credentials"})
 		}
 		log.Printf("[AdminAuth] DB error on login: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Authentication error"})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Authentication service error"})
 	}
 
 	if !isActive {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "This staff account has been deactivated"})
 	}
 
-	// First-time login: password is placeholder
+	// First-time: set the password
 	if passwordHash == "PLACEHOLDER_WILL_BE_SET_ON_FIRST_LOGIN" {
-		// Set the password now
+		if len(req.Password) < 10 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error":     "First login: please set a password of at least 10 characters",
+				"first_login": true,
+			})
+		}
 		hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to set password"})
@@ -281,8 +270,7 @@ func Login(c *fiber.Ctx) error {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
-		// Log failed attempt
-		logAdminAction(ctx, username, role, "auth.login_failed", "auth", email, fiber.Map{"ip": c.IP()})
+		LogAdminAction(ctx, username, role, "auth.login_failed", "auth", email, map[string]interface{}{"ip": c.IP()})
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid credentials"})
 	}
 
@@ -292,15 +280,15 @@ func Login(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"step1_token":   step1Token,
+		"step1_token":  step1Token,
 		"totp_required": totpEnabled,
-		"totp_setup":    !totpEnabled,
-		"username":      username,
-		"role":          role,
+		"totp_setup":   !totpEnabled,
+		"username":     username,
+		"role":         role,
 	})
 }
 
-// Step 2: Verify TOTP code → returns full admin JWT
+// Step 2: Verify TOTP → full admin JWT
 func VerifyTOTP(c *fiber.Ctx) error {
 	req := new(TOTPVerifyRequest)
 	if err := c.BodyParser(req); err != nil {
@@ -309,19 +297,19 @@ func VerifyTOTP(c *fiber.Ctx) error {
 
 	staffID, _, err := parseStep1Token(req.Step1Token)
 	if err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid or expired session. Please login again."})
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Session expired. Please login again."})
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	var username, role string
-	var totpSecret string
+	var username, role, totpSecret string
 	var totpEnabled bool
 	var recoveryCodes []string
 
 	err = database.Pool.QueryRow(ctx,
-		`SELECT username, role, COALESCE(totp_secret,''), COALESCE(totp_enabled,false), COALESCE(recovery_codes, '{}')
+		`SELECT username, role, COALESCE(totp_secret,''),
+		        COALESCE(totp_enabled,false), COALESCE(recovery_codes,'{}')
 		 FROM admin_staff WHERE id = $1`,
 		staffID,
 	).Scan(&username, &role, &totpSecret, &totpEnabled, &recoveryCodes)
@@ -333,34 +321,32 @@ func VerifyTOTP(c *fiber.Ctx) error {
 	code := strings.TrimSpace(req.TOTPCode)
 
 	if totpEnabled {
-		// Try TOTP first
 		valid := verifyTOTP(totpSecret, code)
 		if !valid {
 			// Try recovery code
 			matched, idx := verifyRecoveryCode(recoveryCodes, code)
 			if !matched {
-				logAdminAction(ctx, username, role, "auth.totp_failed", "auth", username, fiber.Map{"ip": c.IP()})
-				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid authentication code"})
+				LogAdminAction(ctx, username, role, "auth.totp_failed", "auth", username, map[string]interface{}{"ip": c.IP()})
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid authentication code. Check your authenticator app."})
 			}
-			// Burn the recovery code
+			// Burn used recovery code
 			recoveryCodes[idx] = "USED-" + recoveryCodes[idx]
-			codesJSON, _ := json.Marshal(recoveryCodes)
-			_, _ = database.Pool.Exec(ctx, "UPDATE admin_staff SET recovery_codes = $1 WHERE id = $2", string(codesJSON), staffID)
+			codesArr := "{" + strings.Join(quoteStrings(recoveryCodes), ",") + "}"
+			_, _ = database.Pool.Exec(ctx, "UPDATE admin_staff SET recovery_codes = $1 WHERE id = $2", codesArr, staffID)
 		}
 	}
 
-	// Issue full admin JWT
 	adminToken, err := generateAdminToken(staffID, username, role)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to generate admin token"})
 	}
 
-	// Save session to DB
-	sessionToken, _ := randomHex(48)
+	// Record session
 	_, _ = database.Pool.Exec(ctx,
-		`INSERT INTO admin_sessions (staff_id, session_token, ip_address, user_agent, expires_at)
+		`INSERT INTO admin_sessions (staff_id, ip_address, user_agent, expires_at, session_token)
 		 VALUES ($1, $2, $3, $4, $5)`,
-		staffID, sessionToken, c.IP(), c.Get("User-Agent"), time.Now().Add(12*time.Hour),
+		staffID, c.IP(), string([]byte(c.Get("User-Agent"))[:min(500, len(c.Get("User-Agent")))]),
+		time.Now().Add(12*time.Hour), adminToken[:32],
 	)
 
 	// Update last login
@@ -369,7 +355,7 @@ func VerifyTOTP(c *fiber.Ctx) error {
 		c.IP(), staffID,
 	)
 
-	logAdminAction(ctx, username, role, "auth.login_success", "auth", username, fiber.Map{"ip": c.IP()})
+	LogAdminAction(ctx, username, role, "auth.login_success", "auth", username, map[string]interface{}{"ip": c.IP()})
 
 	return c.JSON(fiber.Map{
 		"token": adminToken,
@@ -381,7 +367,7 @@ func VerifyTOTP(c *fiber.Ctx) error {
 	})
 }
 
-// Setup TOTP — called when totp_setup = true, generates QR code
+// SetupTOTP — generates QR code + secret for first-time setup
 func SetupTOTP(c *fiber.Ctx) error {
 	staffID := c.Locals("adminStaffID").(string)
 	username := c.Locals("adminUsername").(string)
@@ -394,7 +380,7 @@ func SetupTOTP(c *fiber.Ctx) error {
 	_ = database.Pool.QueryRow(ctx, "SELECT email, COALESCE(totp_enabled,false) FROM admin_staff WHERE id = $1", staffID).Scan(&email, &totpEnabled)
 
 	if totpEnabled {
-		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "TOTP is already configured"})
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "TOTP is already enabled on this account"})
 	}
 
 	secret, err := generateTOTPSecret()
@@ -402,7 +388,6 @@ func SetupTOTP(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to generate TOTP secret"})
 	}
 
-	// Save secret (unverified) temporarily
 	_, err = database.Pool.Exec(ctx,
 		"UPDATE admin_staff SET totp_secret = $1, totp_verified = false WHERE id = $2",
 		secret, staffID,
@@ -411,18 +396,18 @@ func SetupTOTP(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to save TOTP secret"})
 	}
 
-	qrURL := generateTOTPQRURL(secret, email)
+	qrURL := generateTOTPQRURL(secret, email, "Felbic Ops")
 
 	return c.JSON(fiber.Map{
-		"secret":     secret,
-		"qr_url":     qrURL,
-		"username":   username,
-		"issuer":     "Felbic Ops",
-		"message":    "Scan the QR code in your authenticator app, then confirm with a 6-digit code",
+		"secret":   secret,
+		"qr_url":   qrURL,
+		"username": username,
+		"issuer":   "Felbic Ops",
+		"message":  "Scan the QR code with Google Authenticator or Authy, then confirm with the 6-digit code",
 	})
 }
 
-// Confirm TOTP — verifies user scanned correctly, enables 2FA and generates recovery codes
+// ConfirmTOTP — validates setup, enables 2FA, generates recovery codes
 func ConfirmTOTP(c *fiber.Ctx) error {
 	req := new(TOTPConfirmRequest)
 	if err := c.BodyParser(req); err != nil {
@@ -440,14 +425,13 @@ func ConfirmTOTP(c *fiber.Ctx) error {
 	_ = database.Pool.QueryRow(ctx, "SELECT COALESCE(totp_secret,'') FROM admin_staff WHERE id = $1", staffID).Scan(&totpSecret)
 
 	if totpSecret == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Run TOTP setup first"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Run TOTP setup first — call /admin-auth/totp/setup"})
 	}
 
 	if !verifyTOTP(totpSecret, strings.TrimSpace(req.TOTPCode)) {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid TOTP code. Check your authenticator app."})
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid TOTP code. Please check your authenticator app."})
 	}
 
-	// Generate recovery codes
 	plainCodes, hashedCodes, err := generateRecoveryCodes(8)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to generate recovery codes"})
@@ -459,15 +443,15 @@ func ConfirmTOTP(c *fiber.Ctx) error {
 		string(codesJSON), staffID,
 	)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to enable TOTP"})
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to activate TOTP"})
 	}
 
-	logAdminAction(ctx, username, role, "auth.totp_enabled", "auth", username, fiber.Map{})
+	LogAdminAction(ctx, username, role, "auth.totp_enabled", "auth", username, map[string]interface{}{})
 
 	return c.JSON(fiber.Map{
-		"message":        "Two-factor authentication enabled successfully",
+		"message":        "Two-factor authentication activated successfully!",
 		"recovery_codes": plainCodes,
-		"warning":        "Save these recovery codes securely. They will not be shown again.",
+		"warning":        "⚠️ Save these 8 recovery codes securely. They WILL NOT be shown again. Each code can only be used once.",
 	})
 }
 
@@ -490,7 +474,7 @@ func GetMe(c *fiber.Ctx) error {
 	).Scan(&username, &email, &role, &totpEnabled, &lastLogin, &lastLoginIP)
 
 	if err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Session invalid or expired"})
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Session invalid or account deactivated"})
 	}
 
 	lastLoginStr := ""
@@ -503,17 +487,17 @@ func GetMe(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"id":           staffID,
-		"username":     username,
-		"email":        email,
-		"role":         role,
-		"totp_enabled": totpEnabled,
-		"last_login":   lastLoginStr,
+		"id":            staffID,
+		"username":      username,
+		"email":         email,
+		"role":          role,
+		"totp_enabled":  totpEnabled,
+		"last_login":    lastLoginStr,
 		"last_login_ip": lastLoginIPStr,
 	})
 }
 
-// Logout — revoke session
+// Logout — revoke all active sessions
 func Logout(c *fiber.Ctx) error {
 	staffID := c.Locals("adminStaffID").(string)
 	username := c.Locals("adminUsername").(string)
@@ -523,16 +507,16 @@ func Logout(c *fiber.Ctx) error {
 	defer cancel()
 
 	_, _ = database.Pool.Exec(ctx,
-		"UPDATE admin_sessions SET is_revoked = true WHERE staff_id = $1 AND is_revoked = false",
+		"UPDATE admin_sessions SET is_revoked = true WHERE staff_id = $1",
 		staffID,
 	)
 
-	logAdminAction(ctx, username, role, "auth.logout", "auth", username, fiber.Map{"ip": c.IP()})
+	LogAdminAction(ctx, username, role, "auth.logout", "auth", username, map[string]interface{}{"ip": c.IP()})
 
-	return c.JSON(fiber.Map{"message": "Logged out successfully"})
+	return c.JSON(fiber.Map{"message": "Logged out successfully. All sessions revoked."})
 }
 
-// CreateStaff — admin creates new staff account
+// CreateStaff — admin creates a new staff account
 func CreateStaff(c *fiber.Ctx) error {
 	req := new(CreateStaffRequest)
 	if err := c.BodyParser(req); err != nil {
@@ -541,12 +525,14 @@ func CreateStaff(c *fiber.Ctx) error {
 
 	req.Username = strings.ToLower(strings.TrimSpace(req.Username))
 	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+
 	if req.Username == "" || req.Email == "" || req.Password == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Username, email and password are required"})
 	}
 	if len(req.Password) < 10 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Staff password must be at least 10 characters"})
 	}
+
 	validRoles := map[string]bool{"admin": true, "moderator": true, "support": true}
 	if !validRoles[req.Role] {
 		req.Role = "moderator"
@@ -556,9 +542,8 @@ func CreateStaff(c *fiber.Ctx) error {
 	creatorUsername := c.Locals("adminUsername").(string)
 	creatorRole := c.Locals("adminRole").(string)
 
-	// Only admin can create admin-level staff
 	if req.Role == "admin" && creatorRole != "admin" {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Only admins can create admin-level accounts"})
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Only admin-level accounts can create other admins"})
 	}
 
 	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -577,13 +562,14 @@ func CreateStaff(c *fiber.Ctx) error {
 	).Scan(&newID)
 
 	if err != nil {
-		if strings.Contains(err.Error(), "unique") {
+		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
 			return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "Username or email already exists"})
 		}
+		log.Printf("[AdminAuth] CreateStaff error: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create staff account"})
 	}
 
-	logAdminAction(ctx, creatorUsername, creatorRole, "staff.created", "staff", req.Username, fiber.Map{
+	LogAdminAction(ctx, creatorUsername, creatorRole, "staff.created", "staff", req.Username, map[string]interface{}{
 		"new_role":  req.Role,
 		"new_email": req.Email,
 	})
@@ -592,17 +578,19 @@ func CreateStaff(c *fiber.Ctx) error {
 		"message":  "Staff account created successfully",
 		"id":       newID,
 		"username": req.Username,
+		"email":    req.Email,
 		"role":     req.Role,
 	})
 }
 
-// GetStaffList — list all staff
+// GetStaffList — list all staff accounts
 func GetStaffList(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	rows, err := database.Pool.Query(ctx,
-		`SELECT id, username, email, role, totp_enabled, is_active, last_login, last_login_ip, created_at
+		`SELECT id, username, email, role, COALESCE(totp_enabled,false),
+		        COALESCE(is_active,true), last_login, last_login_ip, created_at
 		 FROM admin_staff ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -646,7 +634,7 @@ func GetStaffList(c *fiber.Ctx) error {
 	return c.JSON(list)
 }
 
-// UpdateStaffRole — change staff role
+// UpdateStaffRole
 func UpdateStaffRole(c *fiber.Ctx) error {
 	id := c.Params("id")
 	req := new(UpdateStaffRoleRequest)
@@ -655,7 +643,7 @@ func UpdateStaffRole(c *fiber.Ctx) error {
 	}
 	validRoles := map[string]bool{"admin": true, "moderator": true, "support": true}
 	if !validRoles[req.Role] {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid role"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid role. Must be admin, moderator or support"})
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -666,14 +654,14 @@ func UpdateStaffRole(c *fiber.Ctx) error {
 
 	cmd, err := database.Pool.Exec(ctx, "UPDATE admin_staff SET role = $1 WHERE id = $2", req.Role, id)
 	if err != nil || cmd.RowsAffected() == 0 {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Staff not found"})
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Staff member not found"})
 	}
 
-	logAdminAction(ctx, actorUsername, actorRole, "staff.role_updated", "staff", id, fiber.Map{"new_role": req.Role})
-	return c.JSON(fiber.Map{"message": "Staff role updated", "role": req.Role})
+	LogAdminAction(ctx, actorUsername, actorRole, "staff.role_updated", "staff", id, map[string]interface{}{"new_role": req.Role})
+	return c.JSON(fiber.Map{"message": "Staff role updated successfully", "role": req.Role})
 }
 
-// DeactivateStaff — soft delete staff
+// DeactivateStaff
 func DeactivateStaff(c *fiber.Ctx) error {
 	id := c.Params("id")
 	actorID := c.Locals("adminStaffID").(string)
@@ -687,22 +675,19 @@ func DeactivateStaff(c *fiber.Ctx) error {
 	actorUsername := c.Locals("adminUsername").(string)
 	actorRole := c.Locals("adminRole").(string)
 
-	cmd, err := database.Pool.Exec(ctx,
-		"UPDATE admin_staff SET is_active = false WHERE id = $1",
-		id,
-	)
+	cmd, err := database.Pool.Exec(ctx, "UPDATE admin_staff SET is_active = false WHERE id = $1", id)
 	if err != nil || cmd.RowsAffected() == 0 {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Staff not found"})
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Staff member not found"})
 	}
 
 	// Revoke all sessions
 	_, _ = database.Pool.Exec(ctx, "UPDATE admin_sessions SET is_revoked = true WHERE staff_id = $1", id)
 
-	logAdminAction(ctx, actorUsername, actorRole, "staff.deactivated", "staff", id, fiber.Map{})
-	return c.JSON(fiber.Map{"message": "Staff account deactivated and sessions revoked"})
+	LogAdminAction(ctx, actorUsername, actorRole, "staff.deactivated", "staff", id, map[string]interface{}{})
+	return c.JSON(fiber.Map{"message": "Staff account deactivated and all sessions revoked"})
 }
 
-// ReactivateStaff — reactivate a deactivated staff
+// ReactivateStaff
 func ReactivateStaff(c *fiber.Ctx) error {
 	id := c.Params("id")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -713,15 +698,15 @@ func ReactivateStaff(c *fiber.Ctx) error {
 
 	cmd, err := database.Pool.Exec(ctx, "UPDATE admin_staff SET is_active = true WHERE id = $1", id)
 	if err != nil || cmd.RowsAffected() == 0 {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Staff not found"})
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Staff member not found"})
 	}
-	logAdminAction(ctx, actorUsername, actorRole, "staff.reactivated", "staff", id, fiber.Map{})
+	LogAdminAction(ctx, actorUsername, actorRole, "staff.reactivated", "staff", id, map[string]interface{}{})
 	return c.JSON(fiber.Map{"message": "Staff account reactivated"})
 }
 
-// ─── Shared audit log helper ──────────────────────────────────────────────────
+// ─── Shared audit log helper ───────────────────────────────────────────────────
 
-func logAdminAction(ctx context.Context, username, role, action, targetType, targetID string, details fiber.Map) {
+func LogAdminAction(ctx context.Context, username, role, action, targetType, targetID string, details map[string]interface{}) {
 	detailsJSON, _ := json.Marshal(details)
 	_, err := database.Pool.Exec(ctx,
 		`INSERT INTO admin_audit_logs (admin_username, admin_role, action, target_type, target_id, details)
@@ -733,59 +718,20 @@ func logAdminAction(ctx context.Context, username, role, action, targetType, tar
 	}
 }
 
-// SHA1 implementation (needed for TOTP)
-func computeSHA1(data []byte) []byte {
-	// Constants
-	h0 := uint32(0x67452301)
-	h1 := uint32(0xEFCDAB89)
-	h2 := uint32(0x98BADCFE)
-	h3 := uint32(0x10325476)
-	h4 := uint32(0xC3D2E1F0)
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-	ml := len(data)
-	data = append(data, 0x80)
-	for len(data)%64 != 56 {
-		data = append(data, 0x00)
-	}
-	mlBits := uint64(ml) * 8
-	for i := 7; i >= 0; i-- {
-		data = append(data, byte(mlBits>>(uint(i)*8)))
-	}
-
-	for i := 0; i < len(data); i += 64 {
-		chunk := data[i : i+64]
-		var w [80]uint32
-		for j := 0; j < 16; j++ {
-			w[j] = uint32(chunk[j*4])<<24 | uint32(chunk[j*4+1])<<16 | uint32(chunk[j*4+2])<<8 | uint32(chunk[j*4+3])
-		}
-		for j := 16; j < 80; j++ {
-			w[j] = bits_rotate(w[j-3]^w[j-8]^w[j-14]^w[j-16], 1)
-		}
-		a, b, cc, d, e := h0, h1, h2, h3, h4
-		for j := 0; j < 80; j++ {
-			var f, k uint32
-			switch {
-			case j < 20:
-				f = (b & cc) | ((^b) & d); k = 0x5A827999
-			case j < 40:
-				f = b ^ cc ^ d; k = 0x6ED9EBA1
-			case j < 60:
-				f = (b & cc) | (b & d) | (cc & d); k = 0x8F1BBCDC
-			default:
-				f = b ^ cc ^ d; k = 0xCA62C1D6
-			}
-			tmp := bits_rotate(a, 5) + f + e + k + w[j]
-			e, d, cc, b, a = d, cc, bits_rotate(b, 30), a, tmp
-		}
-		h0, h1, h2, h3, h4 = h0+a, h1+b, h2+cc, h3+d, h4+e
-	}
-	out := make([]byte, 20)
-	for i, v := range []uint32{h0, h1, h2, h3, h4} {
-		out[i*4] = byte(v >> 24); out[i*4+1] = byte(v >> 16); out[i*4+2] = byte(v >> 8); out[i*4+3] = byte(v)
+func quoteStrings(ss []string) []string {
+	out := make([]string, len(ss))
+	for i, s := range ss {
+		escaped := strings.ReplaceAll(s, "\"", "\\\"")
+		out[i] = "\"" + escaped + "\""
 	}
 	return out
 }
 
-func bits_rotate(x uint32, n uint) uint32 {
-	return (x << n) | (x >> (32 - n))
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
